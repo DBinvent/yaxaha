@@ -1,0 +1,228 @@
+
+[config]
+skip_core_tasks = true
+
+[config.modify_core_tasks]
+private = true
+
+[tasks.check_node_env]
+condition = { env_not_set = [ "NID" ] }
+script = "echo Node ID must set && exit 1"
+
+[tasks.check_env]
+condition = { env_not_set = [ "PG_VER" ] }
+env = { "PG_VER" = "14" }
+
+[tasks.check_single]
+condition = { env_not_set = [ "INIT" ] }
+env = { "INIT" = "it_init.sql" }
+script = "echo 'INIT=it_init.sql, use --env CNT=1 --env INIT=it_init_single.sql to override'"
+
+[tasks.check_cnt]
+condition = { env_not_set = [ "CNT" ] }
+env = { "CNT" = "3" }
+
+[tasks.remove_wals]
+env = { "dir"="${CARGO_MAKE_WORKING_DIRECTORY}" }
+script = "rm -R -f $dir/*/wal_*.*"
+
+[tasks.remove_socket_and_mark]
+description = "Removing existing socket files"
+env = { "dir"="${CARGO_MAKE_WORKING_DIRECTORY}/cluster/node${NID}" }
+script = [
+'''
+if [ -d $dir ]; then
+    echo ******************** Database copy directory found, clearing any existing socket files
+    file=$dir/.s.PGSQL.*
+    rm -rf $file
+#    touch $dir/.marker
+fi
+'''
+]
+
+[tasks.prepare_port]
+env = { "port"="2876${NID}", "wd"="${CARGO_MAKE_WORKING_DIRECTORY}/cluster/node${NID}" }
+script = "echo Working PG port set to: $port, working dir: $wd"
+
+[tasks.check_pg]
+condition = { env_not_set = [ "PG_PATH" ] }
+env = { "PG_PATH" = "/usr/lib/postgresql/${PG_VER}/bin" }
+script = [
+'''
+if [ -x $PG_PATH/postgres ]
+then
+  echo Postgres BIN: $PG_PATH
+  $PG_PATH/postgres --version
+else
+  echo NO Postgres BINARY in $PG_PATH
+  echo set using --env PG_PATH=path
+  exit 1
+fi
+'''
+]
+
+[tasks.check_yts_dir]
+condition = { env_not_set = [ "YTSERV_DIR" ] }
+env = { "YTSERV_DIR" = "${CARGO_MAKE_WORKING_DIRECTORY}/../ytserv/target/debug" }
+script = [
+'''
+if [ -x $YTSERV_DIR/ytserv ]
+then
+  echo YTSERV_DIR: $YTSERV_DIR
+else
+  echo NO YTSERV_DIR BINARY SET: $YTSERV_DIR
+  echo set using --env YTSERV_DIR=path, default is ${CARGO_MAKE_WORKING_DIRECTORY}/../ytserv/target/debug
+  $YTSERV_DIR/ytserv
+  exit 1
+fi
+'''
+]
+
+[tasks.pg]
+description = "Starting Postgres server"
+dependencies = ["check_pg", "remove_socket_and_mark"]
+script = [
+'''
+if [ ! -f "$wd"/PG_VERSION ]
+then
+ $PG_PATH/initdb $wd || exit 1
+fi
+$PG_PATH/postgres -k "$wd" -c yt.node="node$NID" -c max_prepared_transactions=100 -D "$wd" -p $port
+'''
+]
+
+[tasks.yt]
+description = "Starting YT-server"
+dependencies = ["check_yts_dir"]
+script = [
+'''
+./postgres_wait.sh $port $wd $NID
+psql -p $port -h $wd -c "create user $USER with superuser" postgres || true
+psql -p $port -h $wd -c "create database $USER owner $USER;" postgres || true
+psql -p $port -h $wd -f ${INIT} -v ON_ERROR_STOP=on
+./psql_wait.sh $port $wd $NID
+if [ -f node.env ]
+then
+ # support node restart for testcases run by Makefile.toml
+ ./node_runner.sh ${YTSERV_DIR} "postgresql://$USER@$USER?host=$wd&port=$port" ${NID}
+else
+ # use on separate node run by this node.toml, with psql console
+ ${YTSERV_DIR}/ytserv "postgresql://$USER@$USER?host=$wd&port=$port"
+fi
+'''
+]
+
+[tasks.wait]
+description = "Testing after YT and PG UP, ALL nodes on port 28761..$CNT."
+script = "./yt_wait.sh 2876 ${CARGO_MAKE_WORKING_DIRECTORY}/cluster/node $NID $CNT"
+
+[tasks.prepare_test]
+description = "Testing after YT and PG UP"
+script = "psql -p $port -h $wd -f it_prepare_test.sql -t -v ON_ERROR_STOP=on "
+
+[tasks.it]
+description = "Integration Testing"
+condition = { env_not_set = [ "psql" ] } # only if
+run_task = { name = ["it1", "it2"]} # <- list of tests
+
+#################################
+#       TESTING SCENARIOS       #
+#################################
+
+[tasks.it1] # Insert on one node - leader; check on others
+dependencies = ["itl1"] # Waiting to complete on every nodes
+script = "./testcases/wait.sh $port $wd $NID $CUID.1 Test_Case_1"
+
+[tasks.itl1] # Run only on leader node
+condition_script = ["./testcases/check.sh $port $wd leader_node.sql"]
+script = "./testcases/case1/test_lead.sh $port $wd $NID $CUID.1"
+
+[tasks.itn1] # not used in this case - run only on one of non leader node
+condition_script = ["./testcases/check.sh $port $wd first_node.sql"]
+script = "./testcases/case1/test_node.sh $port $wd $NID $CUID.1"
+
+#################################
+
+[tasks.it2] # insert on one non leader node; check on all others
+dependencies = ["itn2"]
+script = "./testcases/wait.sh $port $wd $NID $CUID.2 Test_Case_2"
+
+[tasks.itn2]
+condition_script = ["./testcases/check.sh $port $wd first_node.sql"]
+script = "./testcases/case2/test_node.sh $port $wd $NID $CUID.2"
+
+#################################
+
+[tasks.it3] # restart leader; check on all others
+dependencies = ["itl3", "itn3"]
+script = "./testcases/wait.sh $port $wd $NID $CUID.3 Test_Case_3 3"
+
+[tasks.itl3] # restart leader
+condition_script = ["./testcases/check.sh $port $wd leader_node.sql"]
+script = "./testcases/case3/test_lead.sh $port $wd $NID $CUID.3"
+
+[tasks.itn3] # insert on one non leader node
+condition_script = ["./testcases/check.sh $port $wd first_node.sql"]
+script = "./testcases/case3/test_node.sh $port $wd $NID $CUID.3"
+
+#################################
+
+[tasks.it4] # restart non leader;
+dependencies = ["itl4", "itn4"]
+script = "./testcases/wait.sh $port $wd $NID $CUID.4 Test_Case_4 3"
+
+[tasks.itl4] # insert on leader
+condition_script = ["./testcases/check.sh $port $wd leader_node.sql"]
+script = "./testcases/case4/test_lead.sh $port $wd $NID $CUID.4"
+
+[tasks.itn4] # restart one non leader node
+condition_script = ["./testcases/check.sh $port $wd first_node.sql"]
+script = "./testcases/case4/test_node.sh $port $wd $NID $CUID.4"
+
+#################################
+
+
+[tasks.psql]
+description = "Start psql console for manual test if env psql set"
+condition = { env_set = [ "psql" ] }
+script = " psql -p $port -h $wd -v PROMPT1=node${NID}.%/%R%#' '"
+
+[tasks.close]
+description = "Stop and close YT and Postgres server"
+script = [
+'''
+echo "Closing Node$NID..."
+rm -rf node.env
+sleep 1
+kill $(cat $wd/.s.YT.$port.pid) || true
+kill $(head -n 1 $wd/postmaster.pid) || true
+#rm -rf ${CARGO_MAKE_WORKING_DIRECTORY}/node$NID
+'''
+]
+
+[tasks.cleaning]
+description = "cleaning YT and Postgres server"
+script = [
+'''
+echo "Cleaning node $NID..."
+for p in $(ps ugx | grep -v nodev | grep -v grep | grep -v "externals/node" | grep node$NID | awk '{print $2}')
+do
+echo "Stopping pid $p for node $NID..."
+kill $p
+done
+#rm -rf ./node$NID/
+echo "Done Cleaning node $NID..."
+'''
+]
+
+[tasks.test_and_close]
+dependencies = ["check_env", "check_single", "check_cnt", "prepare_port"]
+run_task = { name = ["wait", "prepare_test", "it", "psql", "close"] }
+
+[tasks.default]
+workspace = false
+description = "Run in parallel: Postgres, (wait and run) YT-server, (wait and run) Test then Close"
+dependencies = ["check_node_env", "check_env", "check_single", "prepare_port", "cleaning"]
+# parallel run until ALL completed OR any catch an ERROR
+#run_task = { name = ["pg", "yt"], parallel = true }
+run_task = { name = ["pg", "yt", "test_and_close"], parallel = true }

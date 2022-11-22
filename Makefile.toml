@@ -1,0 +1,147 @@
+
+[config]
+skip_core_tasks = true
+
+[config.modify_core_tasks]
+private = true
+
+[env]
+# ClusterUUID, for syncronizing tests execution on parallel nodes
+# one node will change other nodes will wait
+CUID = { script = ["uuid"] }
+#VERBOSE = "-v"
+VERBOSE = ""
+
+YTSERV_DD = "."
+
+[tasks.check_env]
+condition = { env_not_set = [ "PG_VER" ] }
+env = { "PG_VER" = "14" }
+script = [
+'''
+echo
+echo 'USE example (with defaults):'
+echo 'cargo make --env PG_VER=14 --env CNT=3'
+echo
+#echo 'cargo make --env YTPGXT=y build'
+#echo
+echo 'cargo make --makefile node.toml --env NID=1 --env psql=1'
+echo
+echo 'check existing nodes running:'
+ps augx | grep -v grep | grep -v mount | grep node || echo clean
+'''
+]
+
+[tasks.check_pg]
+condition = { env_not_set = [ "PG_PATH" ] }
+env = { "PG_PATH" = "/usr/lib/postgresql/${PG_VER}/bin" }
+script = [
+'''
+if [ -x $PG_PATH/postgres ]
+then
+  echo Postgres BIN: $PG_PATH
+  $PG_PATH/postgres --version
+else
+  echo NO Postgres BINARY in $PG_PATH
+  echo set using --env PG_PATH=path
+  exit 1
+fi
+'''
+]
+
+[tasks.check_yts_dir]
+condition = { env_not_set = [ "YTSERV_DIR" ] }
+env = { "YTSERV_DIR" = "${CARGO_MAKE_WORKING_DIRECTORY}/${YTSERV_DD}" }
+script = [
+'''
+if [ -x $YTSERV_DIR/ytserv ]
+then
+  echo YTSERV_DIR: $YTSERV_DIR
+else
+  echo NO YTSERV_DIR BINARY SET
+  echo set using --env YTSERV_DIR=path, default is $CARGO_MAKE_WORKING_DIRECTORY/$YTSERV_DD
+  ls -lah $YTSERV_DIR/ytserv
+  exit 1
+fi
+'''
+]
+
+[tasks.build_env]
+script = [
+'''
+echo CNT=$CNT > node.env
+echo CUID=$CUID >> node.env
+echo PG_VER=$PG_VER >> node.env
+echo PG_PATH=$PG_PATH >> node.env
+echo YTSERV_DIR=$YTSERV_DIR >> node.env
+'''
+]
+
+[tasks.check_cnt]
+condition = { env_not_set = [ "CNT" ] }
+env = { "CNT" = "3" }
+
+[tasks.preclean]
+dependencies = ["killall"]
+script = "echo > error.msg "
+
+[tasks.node1]
+script = "cargo make --env NID=1 --makefile node.toml $VERBOSE --env-file=node.env"
+
+[tasks.node2]
+condition_script = ["./le.sh 2 $CNT"]
+script = "cargo make --env NID=2 --makefile node.toml $VERBOSE --env-file=node.env"
+
+[tasks.node3]
+condition_script = ["./le.sh 3 $CNT"]
+script = "cargo make --env NID=3 --makefile node.toml $VERBOSE --env-file=node.env"
+
+[tasks.node4]
+condition_script = ["./le.sh 4 $CNT"]
+script = "cargo make --env NID=4 --makefile node.toml $VERBOSE --env-file=node.env"
+
+[tasks.node5]
+condition_script = ["./le.sh 5 $CNT"]
+script = "cargo make --env NID=5 --makefile node.toml $VERBOSE --env-file=node.env"
+
+[tasks.node6]
+condition_script = ["./le.sh 6 $CNT"]
+script = "cargo make --env NID=6 --makefile node.toml $VERBOSE --env-file=node.env"
+
+[tasks.node7]
+condition_script = ["./le.sh 7 $CNT"]
+script = "cargo make --env NID=7 --makefile node.toml $VERBOSE --env-file=node.env"
+
+[tasks.node8]
+condition_script = ["./le.sh 8 $CNT"]
+script = "cargo make --env NID=8 --makefile node.toml $VERBOSE --env-file=node.env"
+
+[tasks.node9]
+condition_script = ["./le.sh 9 $CNT"]
+script = "cargo make --env NID=9 --makefile node.toml $VERBOSE --env-file=node.env"
+
+
+[tasks.all]
+dependencies = ["check_env", "check_cnt", "check_yts_dir", "check_pg", "build_env", "preclean"]
+# parallel run until ALL completed OR any catch an ERROR
+run_task = { name = ["node1", "node2", "node3", "node4", "node5", "node6", "node7", "node8", "node9"], parallel = true }
+
+[tasks.default]
+description = "Run Cluster processes in parallel background"
+dependencies = ["all"]
+script = "./close_wait.sh"
+
+
+[tasks.killall]
+description = "Cleaning YT and Postgres server"
+script = [
+'''
+echo "Cleaning nodes..."
+for p in $(ps ugx | grep -v nodev | grep -v grep | grep -v "externals/node" | grep node | awk '{print $2}')
+do
+echo "Stopping pid $p ..."
+kill $p
+done
+echo "Done Cleaning all nodes..."
+'''
+]
