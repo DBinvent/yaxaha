@@ -8,6 +8,8 @@ https://rustup.rs/
 cargo install cargo-make 
 ```
 
+Get the yaxaha versino from dbinvent.com and unpack to current directory.
+
 
 Run the cluster with postgres and ytserver.
 The postgres binary use from system installed. The postgres DB use one at cluster/nodeX folder.
