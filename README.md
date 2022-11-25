@@ -13,7 +13,7 @@ Now we can install Rust. To save time, we took the instructions from https://rus
 ```shell
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
-
+![Installing Cargo](https://github.com/DBinvent/yaxaha/blob/main/images/cargo-installation.jpg?raw=true)
 
 
 Required cargo (rust) and cargo-make
