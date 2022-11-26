@@ -8,8 +8,8 @@ fi
 s=1
 while [ -f node.env ]
 do
-  echo "Starting $1/ytserv $2 ..."
-  $1/ytserv $2
+  echo "Starting $1 $2 ..."
+  $1 $2
   echo "Node$3 stopped"
   if [ -f node.env ]
   then

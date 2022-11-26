@@ -1,7 +1,7 @@
 #!/bin/bash
 SCRIPT_DIR=$(dirname $(realpath "$0"))
 
-lc=$(psql -p $1 -h $2 -f $SCRIPT_DIR/$3 -t | grep "-" | wc -l)
+lc=$(psql -p $1 -h $2  -P pager=off -f $SCRIPT_DIR/$3 -t | grep "-" | wc -l)
 
 #echo "check $3 at $1 $lc"
 
