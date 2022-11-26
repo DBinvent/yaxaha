@@ -1,4 +1,28 @@
-# Integration Test
+# YaXAHA Cluster Integration Tests
+
+## Preparations
+
+Before you can start YaXAHA Cluster Integration Tests, you'll need to install [PostgreSQL](https://www.postgresql.org/download/linux/debian/) server with psql frontend, [cargo-make](https://github.com/sagiegurari/cargo-make) tool with several dependencies and a few utilities we have adopted in the test scripts. Please run the following command:
+
+```shell
+sudo apt install -y build-essential curl git uuid
+```
+
+Now we can install Rust. To save time, we took the instructions from https://rustup.rs, for officially supported Linux distributions, execute the following command:
+
+```shell
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+![Installing Cargo](https://github.com/DBinvent/yaxaha/blob/main/images/cargo-installation.jpg?raw=true)
+
+Before Rust will be installed, the script will ask you to specify the settings. Default settings should be OK, you can press `Enter` here.
+
+![Configuring the current shell](https://github.com/DBinvent/yaxaha/blob/main/images/configure-shell-for-cargo.jpg?raw=true)
+
+After Rust is installed, we need to configure the current shell:
+```shell
+source "$HOME/.cargo/env"
+```
 
 Required cargo (rust) and cargo-make
 
