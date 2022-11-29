@@ -1,0 +1,6 @@
+/.git
+/.gitignore
+Dockerfile
+docker.sh
+error.msg
+.bash_history

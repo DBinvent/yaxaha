@@ -15,7 +15,7 @@ leader=0
 while [[ $leader -lt 1 ]]
 do
  sleep 1
- leader=$(psql -p $port -h $wd -c "select * from yt_info('O')" -t | grep -v None | grep Leader | wc -l)
+ leader=$(psql -p $port -h $wd  -P pager=off -c "select * from yt_info('O')" -t | grep -v None | grep Leader | wc -l)
 done
 
 # waiting nodes up
@@ -23,7 +23,7 @@ node=0
 while [[ $node -lt 1 ]]
 do
   sleep 1
-  node=$(psql -p $port -h $wd -f ./testcases/state_node.sql -t | grep -v "other leader" | grep "Good\|Leader" | wc -l)
+  node=$(psql -p $port -h $wd  -P pager=off -f ./testcases/state_node.sql -t | grep -v "other leader" | grep "Good\|Leader" | wc -l)
 done
 
 # waiting at least one node selectable with a good recognized status by first_node.sql
@@ -34,7 +34,7 @@ do
   nid=1
   while [[ $nid -le $4 ]]
   do
-   probe=$(psql -p $1$nid -h $2$nid -f ./testcases/first_node.sql -t | grep "-" | wc -l)
+   probe=$(psql -p $1$nid -h $2$nid  -P pager=off -f ./testcases/first_node.sql -t | grep "-" | wc -l)
    if [[ $probe -ge 1 ]]
    then
      break

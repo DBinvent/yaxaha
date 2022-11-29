@@ -122,6 +122,13 @@ cargo make --makefile node.toml --env NID=1 --env psql=1 --env CNT=1 --env INIT=
 ```
 
 
+## DOCKER RUN:
+
+Build a docker container and run integration tests
+ 
+- `./docker.sh`
+ 
+
 ## AUTO RUN:
 
 Run all nodes on single console and run all test scenarios. 

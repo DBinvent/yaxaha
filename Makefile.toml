@@ -12,7 +12,6 @@ CUID = { script = ["uuid"] }
 #VERBOSE = "-v"
 VERBOSE = ""
 
-YTSERV_DD = "."
 
 [tasks.check_env]
 condition = { env_not_set = [ "PG_VER" ] }
@@ -37,7 +36,8 @@ condition = { env_not_set = [ "PG_PATH" ] }
 env = { "PG_PATH" = "/usr/lib/postgresql/${PG_VER}/bin" }
 script = [
 '''
-if [ -x $PG_PATH/postgres ]
+#!/bin/bash
+if [[ -x $PG_PATH/postgres ]]
 then
   echo Postgres BIN: $PG_PATH
   $PG_PATH/postgres --version
@@ -50,17 +50,18 @@ fi
 ]
 
 [tasks.check_yts_dir]
-condition = { env_not_set = [ "YTSERV_DIR" ] }
-env = { "YTSERV_DIR" = "${CARGO_MAKE_WORKING_DIRECTORY}/${YTSERV_DD}" }
+condition = { env_not_set = [ "YTSERV_BIN" ] }
+#env_files = { "YTSERV_BIN" = "./ytserv_locator.sh" }
 script = [
 '''
-if [ -x $YTSERV_DIR/ytserv ]
+#!/bin/bash
+YTSERV_BIN=$(./ytserv_locator.sh)
+if [[ -x $YTSERV_BIN ]]
 then
-  echo YTSERV_DIR: $YTSERV_DIR
+  echo YTSERV_BIN: $YTSERV_BIN
 else
-  echo NO YTSERV_DIR BINARY SET
-  echo set using --env YTSERV_DIR=path, default is $CARGO_MAKE_WORKING_DIRECTORY/$YTSERV_DD
-  ls -lah $YTSERV_DIR/ytserv
+  echo NO YTSERV_BIN BINARY SET
+  echo set using --env YTSERV_BIN=path/to/ytserv, default search is /usr/local/bin/yaxaha/ytserv*
   exit 1
 fi
 '''
@@ -69,11 +70,16 @@ fi
 [tasks.build_env]
 script = [
 '''
+#!/bin/bash
 echo CNT=$CNT > node.env
 echo CUID=$CUID >> node.env
 echo PG_VER=$PG_VER >> node.env
 echo PG_PATH=$PG_PATH >> node.env
-echo YTSERV_DIR=$YTSERV_DIR >> node.env
+if [[ -x $YTSERV_BIN ]]; then
+ echo YTSERV_BIN=$YTSERV_BIN >> node.env
+else
+ echo YTSERV_BIN=$(./ytserv_locator.sh) >> node.env
+fi
 '''
 ]
 

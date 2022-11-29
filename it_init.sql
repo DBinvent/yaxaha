@@ -19,7 +19,7 @@ insert into public.yt_config (name, module, value) values
  ('verbose','C','true'), -- extra logs
  ('verbose_each','C','0'), -- show ping stat every X pings (0 - do not show)
  ('fs_cache_days', 'C', '99'), -- load logs old days
- ('dir','T','/tmp/'); -- dir not use yet,nor now jsut example to show passing values into trigger
+ ('dir','T','/tmp/'); -- dir not use yet,nor now just example to show passing values into trigger
 
 create schema if not exists yt;
 

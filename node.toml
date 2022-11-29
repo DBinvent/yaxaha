@@ -31,7 +31,8 @@ description = "Removing existing socket files"
 env = { "dir"="${CARGO_MAKE_WORKING_DIRECTORY}/cluster/node${NID}" }
 script = [
 '''
-if [ -d $dir ]; then
+#!/bin/bash
+if [[ -d $dir ]]; then
     echo ******************** Database copy directory found, clearing any existing socket files
     file=$dir/.s.PGSQL.*
     rm -rf $file
@@ -49,7 +50,8 @@ condition = { env_not_set = [ "PG_PATH" ] }
 env = { "PG_PATH" = "/usr/lib/postgresql/${PG_VER}/bin" }
 script = [
 '''
-if [ -x $PG_PATH/postgres ]
+#!/bin/bash
+if [[ -x $PG_PATH/postgres ]]
 then
   echo Postgres BIN: $PG_PATH
   $PG_PATH/postgres --version
@@ -62,17 +64,16 @@ fi
 ]
 
 [tasks.check_yts_dir]
-condition = { env_not_set = [ "YTSERV_DIR" ] }
-env = { "YTSERV_DIR" = "${CARGO_MAKE_WORKING_DIRECTORY}/../ytserv/target/debug" }
+condition = { env_not_set = [ "YTSERV_BIN" ] }
+env = { "YTSERV_BIN" = "./ytserv_locator.sh" }
 script = [
 '''
-if [ -x $YTSERV_DIR/ytserv ]
+#!/bin/bash
+if [[ -x $YTSERV_BIN ]]
 then
-  echo YTSERV_DIR: $YTSERV_DIR
+  echo YTSERV_BIN: $YTSERV_BIN
 else
-  echo NO YTSERV_DIR BINARY SET: $YTSERV_DIR
-  echo set using --env YTSERV_DIR=path, default is ${CARGO_MAKE_WORKING_DIRECTORY}/../ytserv/target/debug
-  $YTSERV_DIR/ytserv
+  echo NO YTSERV_BIN BINARY SET
   exit 1
 fi
 '''
@@ -83,7 +84,8 @@ description = "Starting Postgres server"
 dependencies = ["check_pg", "remove_socket_and_mark"]
 script = [
 '''
-if [ ! -f "$wd"/PG_VERSION ]
+#!/bin/bash
+if [[ ! -f "$wd"/PG_VERSION ]]
 then
  $PG_PATH/initdb $wd || exit 1
 fi
@@ -96,18 +98,19 @@ description = "Starting YT-server"
 dependencies = ["check_yts_dir"]
 script = [
 '''
+#!/bin/bash
 ./postgres_wait.sh $port $wd $NID
 psql -p $port -h $wd -c "create user $USER with superuser" postgres || true
 psql -p $port -h $wd -c "create database $USER owner $USER;" postgres || true
 psql -p $port -h $wd -f ${INIT} -v ON_ERROR_STOP=on
 ./psql_wait.sh $port $wd $NID
-if [ -f node.env ]
+if [[ -f node.env ]]
 then
  # support node restart for testcases run by Makefile.toml
- ./node_runner.sh ${YTSERV_DIR} "postgresql://$USER@$USER?host=$wd&port=$port" ${NID}
+ ./node_runner.sh ${YTSERV_BIN} "postgresql://$USER@$USER?host=$wd&port=$port" ${NID}
 else
  # use on separate node run by this node.toml, with psql console
- ${YTSERV_DIR}/ytserv "postgresql://$USER@$USER?host=$wd&port=$port"
+ ${YTSERV_BIN} "postgresql://$USER@$USER?host=$wd&port=$port"
 fi
 '''
 ]
@@ -118,7 +121,7 @@ script = "./yt_wait.sh 2876 ${CARGO_MAKE_WORKING_DIRECTORY}/cluster/node $NID $C
 
 [tasks.prepare_test]
 description = "Testing after YT and PG UP"
-script = "psql -p $port -h $wd -f it_prepare_test.sql -t -v ON_ERROR_STOP=on "
+script = "psql -p $port -h $wd  -P pager=off -f it_prepare_test.sql -t -v ON_ERROR_STOP=on "
 
 [tasks.it]
 description = "Integration Testing"

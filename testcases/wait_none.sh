@@ -1,7 +1,5 @@
 #!/bin/bash
 set -Eeu
-# ожидание удаления строки из таблице - окончание сценария, выполняется на каждой ноде
-#script = "./testcases/wait.sh $port $wd $NID $CUID.X testcaseX"
 
 sql="select value from yt_config where name = '$4' and value = '$4'"
 
@@ -16,7 +14,7 @@ do
   sleep 1
 
   # check lines
-  lines=$(psql -p $1 -h $2 -c "$sql" -t | grep $4 | wc -l)
+  lines=$(psql -p $1 -h $2  -P pager=off -c "$sql" -t | grep $4 | wc -l)
 
   # check errors
   errors=$(cat error.msg | grep -v "^[[:space:]]*$" | wc -l)
