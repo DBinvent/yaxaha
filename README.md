@@ -166,7 +166,7 @@ Now, you can run any SQL queries you like on one node and see how it affects the
 
 #### Playing with cluster
 
-After you managed to successfully start three nodes of the cluster in the previous section, you can execute any SQL queries you like. YaXAHA Cluster does not have a dedicated master node, so you can start on any node.
+After you managed to successfully start three nodes of the cluster in the previous section, you can execute any SQL queries you like. [YaXAHA Cluster](https://dbinvent.local/cluster/) does not have a dedicated master node, so you can start on any node.
 
 You can also execute an existed SQL script, for example, try running a simple test:
 
