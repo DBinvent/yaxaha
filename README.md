@@ -103,7 +103,7 @@ cd yaxaha
 
 Now you can run an integration test that will locally create three copies of PostgreSQL, run them on different ports as if they were three independent cluster nodes, then run some tests and shut down all nodes.
 
-> Note: the PG_VER parameter specifies the PostgreSQL version installed. Different Linux distributions have different PostgreSQL versions onboard, for example, Debian 11 comes with PostgreSQL v.13, while Ubuntu 22.10 comes with v.14.
+> Note: the `PG_VER` parameter specifies the PostgreSQL version installed. Different Linux distributions have different PostgreSQL versions onboard, for example, Debian 11 comes with PostgreSQL v.13, while Ubuntu 22.10 comes with v.14.
 
 To run several nodes in parallel:
 
