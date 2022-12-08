@@ -30,7 +30,7 @@ su - username
 Before you can start YaXAHA Cluster Integration Tests, you'll need to install [PostgreSQL](https://www.postgresql.org/download/linux/debian/) server with psql frontend, Rust, cargo-make tool with several dependencies and a few utilities we have adopted in the test scripts. Please run the following command:
 
 ```shell
-sudo apt install -y build-essential curl git uuid lsb-release postgresql
+sudo apt update && sudo apt install -y build-essential curl git uuid lsb-release postgresql
 ```
 
 Now we can install Rust. To save time, we took the instructions from https://rustup.rs for supported Linux distributions. Run the following command:
@@ -111,62 +111,101 @@ To run several nodes in parallel:
 cargo make --env PG_VER=14 --env CNT=3
 ```
 
-Run individual node with ID=$NODE_ID and psql:
+To run an individual node with ID=$NODE_ID and psql:
 ```shell
 cargo make --makefile node.toml --env NID=$NODE_ID --env psql=1
 ```
 
-Run single node with ID=1 and psql:
+To run a single node with ID=1 and psql:
 ```shell
 cargo make --makefile node.toml --env NID=1 --env psql=1 --env CNT=1 --env INIT=it_init_single.sql
 ```
 
+### Running manually
 
-## DOCKER RUN:
+You can also play around with the tests, make changes to the scripts, and run the tests manually. For example, you can change the debug level in the `it_init.sql` file.
 
-Build a docker container and run integration tests
- 
-- `./docker.sh`
- 
+In general, the script are executed in the following order:
 
-## AUTO RUN:
+1. `it_init.sql`
+2. `it_preparetest.sql`
+3. `it_test.sql`
 
-Run all nodes on single console and run all test scenarios. 
-- `cargo make`
+In three consoles, start a node with different `NID` by executing the following commands:
 
+```shell
+cargo make --env PG_VER=14 --makefile node.toml --env psql=1 --env YTSERV_BIN=$(./ytserv_locator.sh) --env NID=1
+```
+```shell
+cargo make --env PG_VER=14 --makefile node.toml --env psql=1 --env YTSERV_BIN=$(./ytserv_locator.sh) --env NID=2
+```
+```shell
+cargo make --env PG_VER=14 --makefile node.toml --env psql=1 --env YTSERV_BIN=$(./ytserv_locator.sh) --env NID=3
+```
 
-If failed then run:
-- `cargo make killall`
+As a result, you should get the following:
 
+- No ERROR messages when nodes have been started.
+- You’ll get the node configuration listed in a table-like representation and a psql command line prompt.
+- One of the consoles will display its node Leader status:
+    ```
+    cluster   | E  	| Term: 3, for 6sec., Leader
+    ```
+  
+    While others will display the leader address and port:
+    ```
+    cluster   | E  	| Term: 3, for 6sec., Leader: 6e..65316e:127.0.0.1:28771
+    ```
 
-## MANUAL RUN:
+You can query current cluster state by running:
+```
+select * from json_to_recordset(yt_info('E')) as x(name text, module text, value text);
+```
+  
+Now, you can run any SQL queries you like on one node and see how it affects the other nodes.
 
-Execution order:
+#### Playing with cluster
 
-1. it_init.sql
-2. it_preparetest.sql
-3. it_test.sql -- runs only on NODE=1
+After you managed to successfully start three nodes of the cluster in the previous section, you can execute any SQL queries you like. YaXAHA Cluster does not have a dedicated master node, so you can start on any node.
 
+You can also execute an existed SQL script, for example, try running a simple test:
 
-0. edit `it_init.sql` if want to change debug level and nodes 
-1. build on /tests/ `cargo make build`
-2. run on three console tabs:
-   1.  `cargo make --makefile node.toml --env psql=1 --env NID=1`
-   2.  `cargo make --makefile node.toml --env psql=1 --env NID=2`
-   3.  `cargo make --makefile node.toml --env psql=1 --env NID=3`
+```
+\i it_test.sql
+```
 
- - Must not ERROR
- - One should have 'Cluster got a new leader', while others: 'confirmed_to_term'
- - you have psql
- - you can check with:
- `select * from json_to_recordset(yt.yt_info('E')) as x(name text, module text, value text);`
- - should have 'cluster': end with 'Leadr' and T:1 (term)
+Below is an example of a transaction. Here we will not go into details on how the cluster works, but basically every transaction in the cluster looks like this. On the transaction initiator node, simulate the following transaction:
 
-### Now cluster is ready
+```
+begin;
+insert into yt_config(name, value) values ('test0', 'test10');
+select yt.yt_complete(true);
+commit;
+```
 
-3. Run on one: `begin; insert into yt_config(name, value) values ('test0', 'test10');`
-4. `select yt.yt_complete(true);`
-5. `commit;`
-6. check on others: `select * from yt_config where value = 'test10';`
+Now, check the result on other cluster nodes:
 
-7. to stop yt&pg servers type: `\q` 
+```
+select * from yt_config where value = 'test10';
+```
+
+To stop a node, run this in the PostgreSQL command prompt:
+
+``` 
+\q
+```
+
+#### If something goes wrong
+
+To abort tests, run:
+
+```
+cargo make killall
+```
+
+### Docker
+
+If you have Docker installed, you can play around with tests in a container without messing up the system. In order to deploy the container with these tests, run:
+```shell
+./docker.sh
+```
