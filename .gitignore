@@ -2,3 +2,6 @@
 /cluster0/
 /node.env
 /error.msg
+.cache
+.sudo*
+.bash_history
