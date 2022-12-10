@@ -65,7 +65,7 @@ fi
 
 [tasks.check_yts_dir]
 condition = { env_not_set = [ "YTSERV_BIN" ] }
-env = { "YTSERV_BIN" = "./ytserv_locator.sh" }
+#env = { "YTSERV_BIN" = "./ytserv_locator.sh" }
 script = [
 '''
 #!/bin/bash

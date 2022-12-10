@@ -10,13 +10,13 @@ do
 done
 
 echo "[IT] Probing Postgres for Node$3 at $2 $1..."
-#set -Eeu
 
 status=1
 while [ $status -ne 0 ]
 do
   sleep 1
-  psql -p $1 -h $2 -c "select 1" postgres -t -v ON_ERROR_STOP=on
+#  echo "psql -p $1 -h $2 -c select 1 -t -v ON_ERROR_STOP=on postgres"
+  psql -p $1 -h $2 -l -w -a -b -e -t -v ON_ERROR_STOP=on
   status=$?
 done
 
