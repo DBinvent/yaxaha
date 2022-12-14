@@ -4,3 +4,5 @@ Dockerfile
 docker.sh
 error.msg
 .bash_history
+.psql_history
+cluster
