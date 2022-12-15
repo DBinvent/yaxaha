@@ -11,7 +11,7 @@ RUN apt-get update && \
     export DEBIAN_FRONTEND=noninteractive && \
     apt-get install -yq systemd systemd-sysv dbus dbus-user-session \
         libpq-dev libssl-dev linux-libc-dev xutils-dev libevent-dev libreadline-dev zlib1g-dev  \
-        curl file git pkgconf sudo flex bison build-essential cmake libc6-i386 libtool uuid && \
+        curl file git pkgconf sudo flex bison build-essential cmake libc6-i386 libtool uuid vim && \
     apt-get clean && \
     useradd rust --user-group --create-home --shell /bin/bash --groups sudo
 
