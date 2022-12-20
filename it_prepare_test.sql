@@ -12,7 +12,7 @@ insert into yt_config(name, module, value) values ('.'|| current_database() ||'.
 
 \echo prepare TRIGGER on yt_config
 
--- CREATE TRIGGER yt_config_test_trigger AFTER INSERT OR UPDATE OR DELETE ON yt_config FOR EACH ROW EXECUTE PROCEDURE yt_synchronize();
+CREATE TRIGGER yt_config_test_trigger AFTER INSERT OR UPDATE OR DELETE ON yt_config FOR EACH ROW EXECUTE PROCEDURE yt_synchronize();
 
 \echo "call yt_info with e and i"
 select name, module, value from yt_config where module <> ' '
