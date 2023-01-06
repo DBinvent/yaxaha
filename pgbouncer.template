@@ -1,0 +1,13 @@
+
+[databases]
+* = host=%wd% port=%port%
+
+[pgbouncer]
+listen_port = %lport%
+listen_addr = 127.0.0.1
+auth_type = trust
+auth_file = %wd%/userlist.txt
+logfile = pgbouncer.log
+pidfile = pgbouncer.pid
+admin_users = rust
+

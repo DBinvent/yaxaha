@@ -42,7 +42,7 @@ fi
 ]
 
 [tasks.prepare_port]
-env = { "port"="2876${NID}", "wd"="${CARGO_MAKE_WORKING_DIRECTORY}/cluster/node${NID}" }
+env = { "port"="2876${NID}", "portp"="2876${NID}", "wd"="${CARGO_MAKE_WORKING_DIRECTORY}/cluster/node${NID}" }
 script = "echo Working PG port set to: $port, working dir: $wd"
 
 [tasks.check_pg]
@@ -79,6 +79,28 @@ fi
 '''
 ]
 
+[tasks.pgbouncer]
+condition = { env_set = [ "PGBOUNCER" ] }
+script = [
+'''
+#!/bin/bash
+
+pgbouncerxa -V || exit 0
+
+cp $wd/../../pgbouncer.template $wd/pgbouncer.ini
+
+sed -i 's/%port%/$port/' -i $wd/pgbouncer.ini
+sed -i 's/%lport%/ 122/' -i $wd/pgbouncer.ini
+sed -i 's/%wd%/$wd/' -i $wd/pgbouncer.ini
+
+echo "\"rust\" \"\"" > $wd/userlist.txt
+
+echo "Starting pgbouncerxa, use to stop: psql -c SHUTDOWN -p $port -U $USER pgbouncer"
+
+pgbouncerxa -q $wd/pgbouncer.ini
+'''
+]
+
 [tasks.pg]
 description = "Starting Postgres server"
 dependencies = ["check_pg", "remove_socket_and_mark"]
@@ -87,8 +109,14 @@ script = [
 #!/bin/bash
 if [[ ! -f "$wd"/PG_VERSION ]]
 then
- $PG_PATH/initdb $wd || exit 1
+ $PG_PATH/initdb -U $USER $wd || exit 1
+ echo "DB INITED at $wd"
+else
+ echo "DB already inited at $wd"
 fi
+
+sed -i 's/#listen_addresses/listen_addresses/' $wd/postgresql.conf
+echo "Starting Postgres at $wd..."
 $PG_PATH/postgres -k "$wd" -c yt.node="node$NID" -c max_prepared_transactions=100 -D "$wd" -p $port
 '''
 ]
@@ -100,8 +128,9 @@ script = [
 '''
 #!/bin/bash
 ./postgres_wait.sh $port $wd $NID
-psql -p $port -h $wd -c "create user $USER with superuser" postgres || true
-psql -p $port -h $wd -c "create database $USER owner $USER;" postgres || true
+echo "[IT] Create DB and USER [$USER] if not exists ..."
+psql -p $port -h $wd -c "create user $USER with superuser" postgres || echo "User $USER already exists..."
+psql -p $port -h $wd -c "create database $USER owner $USER;" postgres || echo "DB $USER already exists..."
 psql -p $port -h $wd -f ${INIT} -v ON_ERROR_STOP=on
 ./psql_wait.sh $port $wd $NID
 if [[ -f node.env ]]
@@ -119,7 +148,12 @@ fi
 description = "Testing after YT and PG UP, ALL nodes on port 28761..$CNT."
 script = "./yt_wait.sh 2876 ${CARGO_MAKE_WORKING_DIRECTORY}/cluster/node $NID $CNT"
 
+[task.check_pgb_port]
+env = { "port"="2877${NID}" }
+condition = { env_set = [ "PGBOUNCER" ] }
+
 [tasks.prepare_test]
+#dependencies = ["check_pgb_port"]
 description = "Testing after YT and PG UP"
 script = "psql -p $port -h $wd  -P pager=off -f it_prepare_test.sql -t -v ON_ERROR_STOP=on "
 
@@ -213,6 +247,9 @@ do
 echo "Stopping pid $p for node $NID..."
 kill $p
 done
+
+psql -c SHUTDOWN -p $port -U $USER pgbouncer || true
+
 #rm -rf ./node$NID/
 echo "Done Cleaning node $NID..."
 '''
@@ -224,8 +261,7 @@ run_task = { name = ["wait", "prepare_test", "it", "psql", "close"] }
 
 [tasks.default]
 workspace = false
-description = "Run in parallel: Postgres, (wait and run) YT-server, (wait and run) Test then Close"
+description = "Run in parallel: Postgres, PgBouncerXA, (wait and run) YT-server, (wait and run) Test then Close"
 dependencies = ["check_node_env", "check_env", "check_single", "prepare_port", "cleaning"]
 # parallel run until ALL completed OR any catch an ERROR
-#run_task = { name = ["pg", "yt"], parallel = true }
-run_task = { name = ["pg", "yt", "test_and_close"], parallel = true }
+run_task = { name = ["pg", "pgbouncer", "yt", "test_and_close"], parallel = true }

@@ -32,11 +32,14 @@ RUN curl https://sh.rustup.rs -sSf | \
     env CARGO_HOME=/opt/rust/cargo \
         rustup component add rustfmt
 
+RUN env CARGO_HOME=/opt/rust/cargo cargo install cargo-make
 
 RUN curl -o DBinventLLC.gpg https://www.dbinvent.com/dist/DBinventLLC.gpg.key
 RUN apt-key add DBinventLLC.gpg
 
-RUN echo "deb http://apt.dbinvent.com/focal focal non-free" > /etc/apt/sources.list.d/dbinvent.list
+RUN echo "deb http://apt.dbinvent.com/focal focal  non-free" > /etc/apt/sources.list.d/dbinvent.list
+
+RUN date >/build-date.txt
 
 RUN apt-get update && apt-get install -yq yaxaha
 
@@ -44,20 +47,40 @@ RUN apt-get update && apt-get install -yq yaxaha
 # Allow sudo without a password.
 ADD sudoers /etc/sudoers.d/nopasswd
 
-RUN env CARGO_HOME=/opt/rust/cargo cargo install cargo-make
-
-
 RUN mkdir -p /var/run/postgresql && chown -R postgres:postgres /var/run/postgresql && chmod 2777 /var/run/postgresql
 
 ENV PGDATA /var/lib/postgresql/data
 
+RUN sed s/peer/trust/  -i /etc/postgresql/$POSTGRESQL_VERSION_MAJOR/main/pg_hba.conf
+
 RUN mkdir -p "$PGDATA" && chown -R postgres:postgres "$PGDATA" && chmod 777 "$PGDATA"
+
 VOLUME /var/lib/postgresql/data
 
+USER postgres
+#RUN localedef -i en_US -f UTF-8 en_US.UTF-8
+
+ADD pgbouncer.ini /etc
+ADD userlist.txt /etc
+
+RUN ls /etc/postgresql/14/main
+
+#ENV PGBIN /usr/lib/postgresql/$POSTGRESQL_VERSION_MAJOR/bin
+#RUN $PGBIN/initdb &&\
+# $PGBIN/pg_ctl start &&\
+# $PGBIN/createuser -d -s rust &&\
+# $PGBIN/createdb -O rust rust &&\
+# sudo ytsetup -v -s -g /etc/pgbouncer.ini --pg_config /etc/postgresql/14/main/postgresql.conf --docker_bootstrap ./docker_bootstrap.sh
+
 COPY pg_hba.conf $PGDATA/pg_hba.conf
-RUN sed s/peer/trust/ -i /etc/postgresql/$POSTGRESQL_VERSION_MAJOR/main/pg_hba.conf
 
 USER rust
 ENV USER=rust
 
 WORKDIR /home/rust
+ADD docker_bootstrap.sh /home/rust
+ADD docker_pre_bootstrap.sh /home/rust
+ADD docker_post_bootstrap.sh /home/rust
+
+ENTRYPOINT ["/home/rust/docker_pre_bootstrap.sh", "/home/rust/docker_bootstrap.sh", "/home/rust/docker_post_bootstrap.sh"]
+CMD ["bash"]

@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "[IT] Probing psql for Node$3 at $2 $1..."
+echo "[IT] Probing YTserver for Node$3 at $2 $1..."
 #set -Eeu
 
 status=1

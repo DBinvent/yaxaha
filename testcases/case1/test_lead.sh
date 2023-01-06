@@ -2,7 +2,8 @@
 
 SCRIPT_DIR=$(dirname $(realpath "$0"))
 
-sql="begin; insert into yt_config(name, value) values ('$4', '$4'); select yt_complete(true); commit;"
+sql="begin; insert into yt_config(name, value) values ('$4', '$4'); \
+$($SCRIPT_DIR/../yt_complete.sh) commit;"
 
 $SCRIPT_DIR/../header.sh TestCase1 leader $3 "$sql"
 

@@ -6,3 +6,5 @@
 .sudo*
 .bash_history
 .psql_history
+!/.vim/
+!/.viminfo

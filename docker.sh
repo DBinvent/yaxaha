@@ -3,7 +3,8 @@ set -Eeu
 
 docker image build -t yaxaha .
 echo
-echo "Docker build completed, starting the init.sh..."
+echo "Docker build completed, starting the docker_run.sh..."
 echo
 
-docker run -it -v $(pwd):/home/rust yaxaha bash -e init.sh
+docker run -it -v $(pwd):/home/rust yaxaha
+
