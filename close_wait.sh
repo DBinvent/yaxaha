@@ -11,9 +11,9 @@ ps=1
 while [[ $ps -gt 0 ]]
 do
 sleep 1
-ps=$(ps ugx | grep -v nodev | grep -v grep | grep -v "externals/node" | grep "node.toml" | wc -l)
+ps=$(ps ugx | grep -v nodev | grep -v grep | grep -v "externals/node" | grep node | wc -l)
 
-for p in $(ps ugx | grep -v nodev | grep -v grep | grep -v "externals/node" | grep "node.toml" | awk '{print $2}')
+for p in $(ps ugx | grep -v nodev | grep -v grep | grep -v "externals/node" | grep node | awk '{print $2}')
 do
 echo "Stopping pid $p ..."
 kill $p

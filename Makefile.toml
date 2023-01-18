@@ -143,7 +143,7 @@ description = "Cleaning YT and Postgres server"
 script = [
 '''
 echo "Cleaning nodes..."
-for p in $(ps ugx | grep -v nodev | grep -v grep | grep -v "externals/node" | grep "node.toml" | awk '{print $2}')
+for p in $(ps augx | grep -v nodev | grep -v grep | grep -v "externals/node" | grep node | awk '{print $2}')
 do
 echo "Stopping pid $p ..."
 kill $p
