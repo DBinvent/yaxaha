@@ -222,7 +222,7 @@ script = "./testcases/case4/test_node.sh $port $wd $NID $CUID.4"
 [tasks.psql]
 description = "Start psql console for manual test if env psql set"
 condition = { env_set = [ "psql" ] }
-script = " psql -p $port -h $wd -v PROMPT1=node${NID}.%/%R%#' '"
+script = " psql -p $port -h $wd -v PROMPT1=[psql:$port]node${NID}.%/%R%#' '"
 
 [tasks.close]
 description = "Stop and close YT and Postgres server"

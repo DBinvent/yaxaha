@@ -143,6 +143,22 @@ cargo make --env PG_VER=14 --makefile node.toml --env psql=1 --env YTSERV_BIN=$(
 cargo make --env PG_VER=14 --makefile node.toml --env psql=1 --env YTSERV_BIN=$(./ytserv_locator.sh) --env NID=3
 ```
 
+```shell
+#
+echo "PG_VER=14" > test.env
+echo "psql=1" >> test.env
+echo "YTSERV_BIN=$(./ytserv_locator.sh)" >> test.env
+
+cargo make --makefile node.toml --env-file=test.env  --env NID=3
+```
+
+to bounce one node use this command to start: (after close psql by \q)
+```shell
+# for the node ID#3:
+cargo make --makefile node.toml --env-file=test.env --env NID=3 --env INIT=select.sql
+```
+
+
 As a result, you should get the following:
 
 - No ERROR messages when nodes have been started.

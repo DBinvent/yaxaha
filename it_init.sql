@@ -13,7 +13,7 @@ insert into public.yt_config (name, module, value) values
  ('node2','N','127.0.0.1:28772'), -- -6e6f6465326e
  ('node3','N','127.0.0.1:28773'), -- -6e6f6465336e
  ('ping_tick_sleep_ms','C','5000'), -- delay between pings
- ('log_level','C','debug'),
+--  ('log_level','C','debug'),
  ('fs_dir','C','./cluster'),
  ('cfg_level','C','5'), -- use: 'node uuid . IP . port' as logs prefix
  ('verbose','C','true'), -- extra logs
