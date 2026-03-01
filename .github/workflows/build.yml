@@ -1,0 +1,24 @@
+name: Build Yahaxa
+
+on:
+  push:
+#    branches: ["main"]
+#    paths: ["src/**", "**/*.toml"]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: [self-hosted]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check disk space
+        run: |
+          df -h
+          echo "Available space before cleanup:"
+          df -h ${{ runner.tool_cache }} || df -h ~ || df -h / || true
