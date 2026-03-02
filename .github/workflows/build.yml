@@ -1,4 +1,4 @@
-name: Build Yahaxa
+name: Build YaXaHa
 
 on:
   push:
@@ -11,7 +11,9 @@ concurrency:
 
 jobs:
   build:
-    runs-on: [self-hosted]
+    runs-on:
+      group: Default
+      labels: [ self-hosted ]
 
     steps:
       - name: Checkout
