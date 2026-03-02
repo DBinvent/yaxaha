@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: Default
 
     steps:
       - name: Checkout
