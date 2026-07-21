@@ -1,10 +1,11 @@
 
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 
 ARG TOOLCHAIN=stable
 
 ARG ZLIB_VERSION=1.2.13
 ARG POSTGRESQL_VERSION_MAJOR=14
+ARG APT_HOST=apt
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
@@ -15,7 +16,7 @@ RUN apt-get update && \
     apt-get clean && \
     useradd rust --user-group --create-home --shell /bin/bash --groups sudo
 
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt focal-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+RUN echo "deb http://apt.postgresql.org/pub/repos/apt jammy-pgdg main" > /etc/apt/sources.list.d/pgdg.list
 RUN curl -o ACCC4CF8.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
 RUN apt-key add ACCC4CF8.asc
 
@@ -34,14 +35,20 @@ RUN curl https://sh.rustup.rs -sSf | \
 
 RUN env CARGO_HOME=/opt/rust/cargo cargo install cargo-make
 
-RUN curl -o DBinventLLC.gpg https://www.dbinvent.com/dist/DBinventLLC.gpg.key
-RUN apt-key add DBinventLLC.gpg
+RUN curl -fsSL http://$APT_HOST/dev.gpg.key | gpg --dearmor -o /usr/share/keyrings/yaxaha.gpg
 
-RUN echo "deb http://apt.dbinvent.com/focal focal  non-free" > /etc/apt/sources.list.d/dbinvent.list
+RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/yaxaha.gpg] http://$APT_HOST yaxaha restricted" > /etc/apt/sources.list.d/yaxaha.list
 
 RUN date >/build-date.txt
 
 RUN apt-get update && apt-get install -yq yaxaha
+
+# yaxaha depends on the generic 'postgresql' meta-package, which pulls in the latest
+# major version (e.g. 18) alongside the explicitly installed $POSTGRESQL_VERSION_MAJOR.
+# There's no update-alternatives entry for pg_config, so /usr/bin/pg_config silently
+# ends up pointing at the newer version's binary; yxctl invokes it unqualified and
+# would install the extension into the wrong version's directory.
+RUN ln -sf /usr/lib/postgresql/$POSTGRESQL_VERSION_MAJOR/bin/pg_config /usr/bin/pg_config
 
 
 # Allow sudo without a password.

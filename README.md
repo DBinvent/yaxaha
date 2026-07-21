@@ -70,7 +70,7 @@ wget -O - https://www.dbinvent.com/dist/DBinventLLC.gpg.key | sudo apt-key add -
 Add our repository to your sources.list:
 
 ```shell
-echo "deb http://apt.dbinvent.com/focal focal non-free" > sudo /etc/apt/sources.list.d/dbinvent.list
+echo "deb http://apt.dbinvent.com/ yaxaha restricted" > sudo /etc/apt/sources.list.d/dbinvent.list
 ```
 
 Install the YaXAHA Cluster package:
