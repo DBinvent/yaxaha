@@ -5,7 +5,7 @@ ARG TOOLCHAIN=stable
 
 ARG ZLIB_VERSION=1.2.13
 ARG POSTGRESQL_VERSION_MAJOR=14
-ARG APT_HOST=apt
+ARG APT_HOST=apt.dbinvent.com
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
@@ -56,13 +56,26 @@ ADD sudoers /etc/sudoers.d/nopasswd
 
 RUN mkdir -p /var/run/postgresql && chown -R postgres:postgres /var/run/postgresql && chmod 2777 /var/run/postgresql
 
-ENV PGDATA /var/lib/postgresql/data
-
 RUN sed s/peer/trust/  -i /etc/postgresql/$POSTGRESQL_VERSION_MAJOR/main/pg_hba.conf
 
-RUN mkdir -p "$PGDATA" && chown -R postgres:postgres "$PGDATA" && chmod 777 "$PGDATA"
-
-VOLUME /var/lib/postgresql/data
+# No PGDATA, and no VOLUME. Nothing here needs a database to survive the
+# container:
+#
+#   - the cluster under test is created from scratch on every run. `initdb`
+#     writes each node into ./cluster/nodeN in the bind-mounted working
+#     directory, and it_init.sql builds the schema — see "The database is
+#     rebuilt every run" in README.md.
+#   - the package's own instance, which ytsetup needs during bootstrap,
+#     lives where the Debian package puts it: /var/lib/postgresql/14/main.
+#
+# /var/lib/postgresql/data was neither. It held nothing, and `VOLUME` on it
+# left an anonymous volume behind after every `docker run` — a pile of empty
+# directories nobody prunes. The `COPY pg_hba.conf` that followed it did
+# nothing either: Docker discards writes to a declared volume path made in
+# later build steps, so that file never reached an image. What actually
+# opens up authentication is the sed above, against the packaged cluster's
+# config; each test node gets initdb's own default, which is already trust
+# over the local socket.
 
 USER postgres
 #RUN localedef -i en_US -f UTF-8 en_US.UTF-8
@@ -78,8 +91,6 @@ RUN ls /etc/postgresql/14/main
 # $PGBIN/createuser -d -s rust &&\
 # $PGBIN/createdb -O rust rust &&\
 # sudo ytsetup -v -s -g /etc/pgbouncer.ini --pg_config /etc/postgresql/14/main/postgresql.conf --docker_bootstrap ./docker_bootstrap.sh
-
-COPY pg_hba.conf $PGDATA/pg_hba.conf
 
 USER rust
 ENV USER=rust

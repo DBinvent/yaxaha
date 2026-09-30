@@ -1,0 +1,6 @@
+# made per run, never committed: the app key, passwords, the staged package,
+# the model host's address, the run logs
+.env
+run/
+build/
+results/*.log

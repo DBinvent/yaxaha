@@ -1,0 +1,4 @@
+# Python for yt_llm's df target, in the node image's /opt/llm-df venv
+# (module C llm_df_python). The versions the lab nodes run.
+datafusion==54.0.0
+pyarrow==25.0.1

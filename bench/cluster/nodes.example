@@ -1,0 +1,15 @@
+# bench/cluster node list — one node per line, copy to `nodes` and edit.
+#
+#   <ssh-target>            [pgport]
+#
+# ssh-target : whatever `$BENCH_SSH <target>` reaches (a Host in ~/.ssh/config,
+#              or user@host). pgbench and psql run there, next to that node's
+#              Postgres (BENCH.md §3).
+# pgport     : that node's PostgreSQL port. Optional; defaults to $BENCH_PGPORT
+#              (5432). The ytserv peer port (7421) is not needed here.
+#
+# Node order is the shard order: line 1 is `-D node=1`, line 2 is `-D node=2`.
+# '#' and blank lines are ignored.
+
+node1   5432
+node2   5432

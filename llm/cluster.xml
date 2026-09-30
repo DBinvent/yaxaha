@@ -1,0 +1,14 @@
+<!-- The llm test's ClickHouse cluster yt: three shards, one per ClickHouse node.
+     Stored verbatim as the yt_config row C clickhouse_cluster; each yaxaha node
+     fills the empty secret from module K row clickhouse and writes the file its
+     ClickHouse node reads. -->
+<clickhouse>
+    <remote_servers>
+        <yt>
+            <secret/>
+            <shard><replica><host>ch1</host><port>9000</port></replica></shard>
+            <shard><replica><host>ch2</host><port>9000</port></replica></shard>
+            <shard><replica><host>ch3</host><port>9000</port></replica></shard>
+        </yt>
+    </remote_servers>
+</clickhouse>

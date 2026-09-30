@@ -1,0 +1,122 @@
+{
+  "anchors": [
+    {
+      "at": "2026-08-28T21:56:57+00:00",
+      "clients": 4,
+      "config": "S1",
+      "cpu": {
+        "cores": 4,
+        "fma_units": 2,
+        "ghz": 3.4,
+        "ghz_source": "model string (nominal)",
+        "hostname": "i5-4670",
+        "isa": "avx2",
+        "model": "Intel(R) Core(TM) i5-4670 CPU @ 3.40GHz",
+        "sockets": 1,
+        "threads": 4
+      },
+      "duration_s": 30,
+      "failed": 0,
+      "lat_avg_ms": 3.45,
+      "measured": true,
+      "note": "baseline, live services running (ytserver, alloy, atria e2e)",
+      "peak_tflops": 0.2176,
+      "pg": {
+        "fsync": "on",
+        "max_connections": "1000",
+        "max_wal_size": "1024 MB",
+        "server_version": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+        "shared_buffers": "16384 8kB",
+        "synchronous_commit": "on",
+        "wal_level": "replica"
+      },
+      "ramp_s": 10,
+      "scale": 5,
+      "threads": 4,
+      "tps": 1159.119937,
+      "tps_per_tflop": 5326.84,
+      "transactions": 34773,
+      "usable_tflops": 0.2176,
+      "workload": "stream.sql (disjoint, node=1/1)"
+    },
+    {
+      "at": "2026-08-28T21:58:14+00:00",
+      "clients": 8,
+      "config": "S1",
+      "cpu": {
+        "cores": 4,
+        "fma_units": 2,
+        "ghz": 3.4,
+        "ghz_source": "model string (nominal)",
+        "hostname": "i5-4670",
+        "isa": "avx2",
+        "model": "Intel(R) Core(TM) i5-4670 CPU @ 3.40GHz",
+        "sockets": 1,
+        "threads": 4
+      },
+      "duration_s": 30,
+      "failed": 0,
+      "lat_avg_ms": 4.33,
+      "measured": true,
+      "note": "same rig, twice the clients: tests the min(clients,cores) saturation rule",
+      "peak_tflops": 0.2176,
+      "pg": {
+        "fsync": "on",
+        "max_connections": "1000",
+        "max_wal_size": "1024 MB",
+        "server_version": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+        "shared_buffers": "16384 8kB",
+        "synchronous_commit": "on",
+        "wal_level": "replica"
+      },
+      "ramp_s": 10,
+      "scale": 5,
+      "threads": 4,
+      "tps": 1846.416111,
+      "tps_per_tflop": 8485.37,
+      "transactions": 55395,
+      "usable_tflops": 0.2176,
+      "workload": "stream.sql (disjoint, node=1/1)"
+    },
+    {
+      "at": "2026-08-28T22:00:52+00:00",
+      "clients": 16,
+      "config": "S1",
+      "cpu": {
+        "cores": 4,
+        "fma_units": 2,
+        "ghz": 3.4,
+        "ghz_source": "model string (nominal)",
+        "hostname": "i5-4670",
+        "isa": "avx2",
+        "model": "Intel(R) Core(TM) i5-4670 CPU @ 3.40GHz",
+        "sockets": 1,
+        "threads": 4
+      },
+      "duration_s": 30,
+      "failed": 0,
+      "lat_avg_ms": 7.532,
+      "measured": true,
+      "note": "third point: gives the saturating fit a residual to report",
+      "peak_tflops": 0.2176,
+      "pg": {
+        "fsync": "on",
+        "max_connections": "1000",
+        "max_wal_size": "1024 MB",
+        "server_version": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+        "shared_buffers": "16384 8kB",
+        "synchronous_commit": "on",
+        "wal_level": "replica"
+      },
+      "ramp_s": 10,
+      "scale": 5,
+      "threads": 4,
+      "tps": 2121.731747,
+      "tps_per_tflop": 9750.61,
+      "transactions": 63657,
+      "usable_tflops": 0.2176,
+      "workload": "stream.sql (disjoint, node=1/1)"
+    }
+  ],
+  "model": "tps = k * peak_tflops * min(clients,cores)/cores ; k = tps/usable_tflops per anchor, median over anchors of a config"
+}

@@ -127,19 +127,46 @@ dependencies = ["check_yts_dir"]
 script = [
 '''
 #!/bin/bash
-./postgres_wait.sh $port $wd $NID
+# Fatal: this script has no `set -e`, so without `|| exit 1` a Postgres that
+# never came up is followed by a create-user against nothing, an init that
+# fails, and an ytserv with no database.
+./postgres_wait.sh $port $wd $NID || exit 1
 echo "[IT] Create DB and USER [$USER] if not exists ..."
 psql -p $port -h $wd -c "create user $USER with superuser" postgres || echo "User $USER already exists..."
 psql -p $port -h $wd -c "create database $USER owner $USER;" postgres || echo "DB $USER already exists..."
-psql -p $port -h $wd -f ${INIT} -v ON_ERROR_STOP=on
-./psql_wait.sh $port $wd $NID
+
+# Fatal, and said out loud. Without this the failure is discarded — there is
+# no `set -e` here — and the run continues to wait for an extension that was
+# never created, forever. That is how `CREATE EXTENSION ytpgxt` survived the
+# rename to `yaxaha`: the suite never reported it, it just stopped.
+# error.msg is the channel close_wait.sh reads to decide the exit code.
+if ! psql -p $port -h $wd -f ${INIT} -v ON_ERROR_STOP=on
+then
+  echo "[IT] Node$NID: ${INIT} failed, see the error above" | tee -a error.msg >&2
+  exit 1
+fi
+
+# ytserv starts here, with nothing waiting on it first.
+#
+# There used to be a `./psql_wait.sh` on this line, which could not work:
+# it polls `yt_info('R')`, `yt_info()` asks ytserv over HTTP, and ytserv is
+# what the next line starts — so the wait could only finish once the thing
+# it was waiting for had started, and that could not happen until the wait
+# finished. The readiness gate is not missing, it is in the right place
+# already: the parallel `test_and_close` task runs `yt_wait.sh`, whose first
+# act is that same `psql_wait.sh`, and which then also waits for a leader.
+# The config table is the second argument and is NOT optional. Given only a
+# connection string, ytserv 0.12 derives the table from its own argv[0] and
+# queries `public.ytserv-glibc2_35`, which is a syntax error it retries
+# forever. `yxctl` passes `public.yt_config` in the packaged bootstrap; so
+# does this now.
 if [[ -f node.env ]]
 then
  # support node restart for testcases run by Makefile.toml
- ./node_runner.sh ${YTSERV_BIN} "postgresql://$USER@$USER?host=$wd&port=$port" ${NID}
+ ./node_runner.sh ${NID} ${YTSERV_BIN} "postgresql://$USER@$USER?host=$wd&port=$port" public.yt_config
 else
  # use on separate node run by this node.toml, with psql console
- ${YTSERV_BIN} "postgresql://$USER@$USER?host=$wd&port=$port"
+ ${YTSERV_BIN} "postgresql://$USER@$USER?host=$wd&port=$port" public.yt_config
 fi
 '''
 ]

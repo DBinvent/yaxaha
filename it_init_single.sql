@@ -1,4 +1,4 @@
-drop EXTENSION if exists ytpgxt cascade;
+drop EXTENSION if exists yaxaha cascade;
 
 create table if not exists public.yt_config (
     id serial primary key,
@@ -20,7 +20,7 @@ insert into public.yt_config (name, module, value) values
 
 create schema if not exists yt;
 
-CREATE EXTENSION ytpgxt;-- schema yt;
+CREATE EXTENSION yaxaha;-- schema yt;
 
 \echo "init completed for SINGLE CLUSTER NODE"
 

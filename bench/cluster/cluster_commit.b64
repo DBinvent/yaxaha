@@ -1,0 +1,55 @@
+# Precomputed base64 for a `module='A'` row's `value` — a
+# ConfigValue{ table: CfgTabl{ cluster_commit } } protobuf. yt_ct_encode() in
+# the C extension is a stub, so these come from ytcluster-types
+# (`ConfigValue::encode_to_str`; see the `tests::cc_b64_print` test in
+# ytcluster-types/src/lib.rs). `party_size` / `min_commit` on the deployed
+# ytserv is what actually decides the behaviour — see the note per row.
+#
+# ALWAYS register a synced table with an EXPLICIT value below — never leave the
+# `module='A'` value empty. An empty value falls back to `def_cluster_commit`
+# ("half"), and on a mis-configured / behind cluster ytserv then takes the fast
+# async path: yt_synchronize() returns in ~7ms, the background cluster_apply to
+# the peer times out unseen, pgbench reports success, and the nodes silently
+# diverge. An explicit `all` makes every commit synchronous — it either lands
+# on all nodes or the client gets an error to retry.
+
+#  proto value                     base64       effect
+CfgTabl{}                          ""           DO NOT USE — empty -> def_cluster_commit fallback, see note above.
+Half                               CgISAA==     synchronous to half the nodes (round up).
+All                                CgIaAA==     synchronous to ALL nodes — commit lands everywhere or errors.  <-- bench `sync` condition
+Nodes{ at_least: 0 }               CgIiAA==     stock ytserv: 0usize-1 underflow -> every write aborts.
+                                                with the checkin/cluster.rs "+1" patch: origin-only + async apply_all.
+Nodes{ at_least: 1 }               CgQiAggB     stock ytserv: origin-only + async apply_all  <-- bench `nodes1` default
+                                                with the "+1" patch: origin + 1 synchronous peer.
+Nodes{ at_least: 2 }               CgQiAggC     origin + (1 | 2) synchronous peers, per patch state.
+Ignore                             CgIqAA==     commit local, never propagate. Not a bench condition.
+Ignore{ at_least: 1 }              CgQqAggB     [none-wal] commit local, but park the WAL record on 1 peer
+                                                (saved tier, never executed there). No party, no 2PC, nothing
+                                                extra on commit - the push happens inside the tx execute
+                                                block right after checkin. The peer applies it later via the
+                                                ordinary async/pull path. Because checkin still runs, the
+                                                leader conflict probe is armed: a concurrent write to the
+                                                same rows on another node gets DataLoss and pull-retries
+                                                instead of silently diverging - which plain Ignore does not.
+                                                at_least counts like nodes>=N (excludes origin), so the
+                                                string form is "ignore>=2". Not a bench condition.
+
+# ---------------------------------------------------------------------------
+# 2026-09-13: ClusterCommitCfg refactor. The oneof (half=2 / all=3 / nodes=4 /
+# ignore=5) collapsed into ONE `ClusterCommitCfg cluster_commit = 2` message
+# carrying {at_least, mode}, with field 5 now `reserved`. The wire format
+# changed, so EVERY value above is stale.
+#
+# !! CgISAA== used to mean `half`; under the new schema it decodes as `ignore`
+# !! (mode NONE = no replication). Rewrite every module='A' row when deploying
+# !! a ytserv built after this refactor, or synced tables silently stop
+# !! replicating. Old rows for all/nodes land on reserved field 5 and are
+# !! skipped as unknown -> cluster_commit absent -> def_cluster_commit fallback.
+#
+#  proto value                      base64            effect
+ClusterCommitCfg{HALF}              CgQSAhAB          synchronous to half the nodes (round up).
+ClusterCommitCfg{ALL}               CgQSAhAD          synchronous to ALL nodes.  <-- bench `sync` condition
+ClusterCommitCfg{SOME,at_least:0}   CgQSAhAC          "nodes>=1": origin only.
+ClusterCommitCfg{SOME,at_least:1}   CgYSBAgBEAI=      "nodes>=2": origin + 1 synchronous peer.  <-- bench `nodes1`
+ClusterCommitCfg{NONE}              CgISAA==          "ignore": local only, no propagation.
+ClusterCommitCfg{NONE,at_least:1}   CgQSAggB          "ignore>=2": local commit + WAL parked on 1 peer.

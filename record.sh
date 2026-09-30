@@ -43,13 +43,10 @@ EOF
   exit 1
 fi
 
-# Same build arguments docker.sh uses — the yaxaha package comes from the
-# local apt host unless told otherwise.
-APT_HOST="${APT_HOST:-apt}"
+# Same build arguments docker.sh uses — the yaxaha package comes from
+# apt.dbinvent.com unless told otherwise.
+APT_HOST="${APT_HOST:-apt.dbinvent.com}"
 APT_HOST_IP="${APT_HOST_IP:-}"
-if [[ -z "$APT_HOST_IP" && "$APT_HOST" == "apt" ]]; then
-  APT_HOST_IP=192.168.1.3
-fi
 BUILD_ARGS=(--build-arg "APT_HOST=$APT_HOST")
 [[ -n "$APT_HOST_IP" ]] && BUILD_ARGS+=(--add-host "$APT_HOST:$APT_HOST_IP")
 

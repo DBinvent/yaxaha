@@ -1,40 +1,31 @@
 #!/bin/bash
+# Waits until this node's Postgres is up and answering.
+#
+#   ./postgres_wait.sh <port> <working-dir> <node-id>
+. ./wait_common.sh
 
-socket=$2"/.s.PGSQL."$1
-marker=$2"/.marker"
+port=$1
+wd=$2
+nid=$3
+socket="$wd/.s.PGSQL.$port"
 
-echo "Waiting for '$socket' existence"
-while [ ! -e "$socket" ]
-do
-  sleep 1
-done
+socket_exists() { [ -e "$socket" ]; }
 
-echo "[IT] Probing Postgres for Node$3 at $2 $1..."
+# Was an unbounded `while [ ! -e "$socket" ]`. If Postgres failed to start —
+# a bad initdb, a port already taken, a data directory from another major
+# version — this waited for a socket that was never coming, forever.
+echo "[IT] Waiting for '$socket'"
+it_wait_for "the Postgres socket $socket (node$nid)" socket_exists
 
-counter=1
-while [ $counter -lt 10 ]
-do
-  sleep 1
-  echo "psql -p $1 -h $2 -c select 1 -t -v ON_ERROR_STOP=on -U $USER postgres"
+# Either role will do: `postgres` exists from initdb, `$USER` is created a
+# moment later by the yt task. Whichever answers first means the server is
+# accepting queries.
+accepts_queries() {
+  psql -p "$port" -h "$wd" -c "select 1" -t -v ON_ERROR_STOP=on -U postgres postgres ||
+  psql -p "$port" -h "$wd" -c "select 1" -t -v ON_ERROR_STOP=on -U "$USER" postgres
+}
 
-  psql -p $1 -h $2 -c "select 1" -t -v ON_ERROR_STOP=on -U postgres postgres
-  if [ $? -eq 0 ]; then
-    counter=0
-    break
-  fi
-  psql -p $1 -h $2 -c "select 1" -t -v ON_ERROR_STOP=on -U $USER postgres
-  if [ $? -eq 0 ]; then
-    counter=0
-    break
-  fi
-#  psql -p $1 -h $2 -c "select 1" -t -v ON_ERROR_STOP=on -U postgres postgres
-# psql -p $1 -h $2 -U postgres -l -w -a -b -e -t -v ON_ERROR_STOP=on postgres
-  ((counter++))
-done
+echo "[IT] Probing Postgres for Node$nid at $wd $port..."
+it_wait_for "Postgres to accept queries on node$nid" accepts_queries
 
-if [ $counter -eq 0 ]; then
-  echo "[IT] PostgreSQL is ready for Node$3 ... "
-else
-  echo "[IT] PostgreSQL is NOT ready for Node$3 ... "
-  exit 1
-fi
+echo "[IT] PostgreSQL is ready for Node$nid ... "

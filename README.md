@@ -4,6 +4,21 @@ We run our tests on Debian-based Linux distributions and can’t give any promis
 
 YaXAHA Cluster is written in Rust and out of habit we use cargo-make in the integration tests.
 
+## Other tests and reports
+
+Besides the cargo-make integration tests below, this repository holds these
+tests, each with its write-up:
+
+| | |
+|---|---|
+| [llm/](llm/README.md) | `yt_llm`: questions in plain language, answered by PostgreSQL, DataFusion or ClickHouse, on a docker cluster of three yaxaha and three ClickHouse nodes. The article: [llm/report.md](llm/report.md); the run: [llm/results.md](llm/results.md) |
+| [cluster-test1.md](cluster-test1.md) | where the time goes in a 3-node cluster, against PostgreSQL's own synchronous replication; harness [cluster-test1-matrix.sh](cluster-test1-matrix.sh) |
+| [cluster-test2.md](cluster-test2.md) | HPC: subterm leases against the per-statement checkin round trip |
+| [cluster-test3.md](cluster-test3.md) | the leader forced onto the node that originates the writes; harness [cluster-test3-matrix.sh](cluster-test3-matrix.sh) |
+| [pgbench_single.md](pgbench_single.md) | one plain PostgreSQL per host: TPS per CPU TFLOPS |
+| [BENCH.md](BENCH.md) | the plan for pgbench on one PostgreSQL against a cluster, not yet run; its tools are in [bench/](bench/), the multi-host driver in [bench/cluster/](bench/cluster/README.md) |
+| [pipeline/](pipeline/README.md) | the on-commit chain pgbench → Python → etcd queue → Python → ClickHouse, and an etcd queue written straight into ClickHouse |
+
 ## Preparations
 
 This instruction assumes that you have _sudo_ command installed and there is a sudo user in your system. If you have a fresh system installed, no sudo command, or no sudo user in the system, additional steps will be required.
@@ -121,6 +136,48 @@ To run a single node with ID=1 and psql:
 cargo make --makefile node.toml --env NID=1 --env psql=1 --env CNT=1 --env INIT=it_init_single.sql
 ```
 
+### The database is rebuilt every run
+
+Nothing here keeps a database between runs, on purpose — a test that starts
+from whatever the last run left behind is a test whose result depends on the
+last run. There is no volume to mount and nothing to clean up: every node is
+created from nothing each time, and the schema is created by SQL that runs
+as part of starting the node.
+
+Each node gets its own PostgreSQL data directory under `cluster/nodeN`,
+created by `initdb` on first use and reused as-is afterwards. `cluster/` is
+git-ignored. To start completely fresh — a different `PG_VER`, or a data
+directory left in a bad state — delete it:
+
+```shell
+rm -rf cluster/
+```
+
+The schema is not in the data directory's lineage at all; it is three SQL
+scripts, run in this order:
+
+| script | what it creates |
+|---|---|
+| `it_init.sql` | the `public.yt_config` table, the cluster roster and settings rows in it, the `yt` schema, and `CREATE EXTENSION yaxaha` |
+| `it_prepare_test.sql` | the `yt_config_test_trigger` on `yt_config`, which calls `yt_synchronize()` on every insert, update and delete — this is what puts a row on the wire |
+| `it_test.sql` | a sample transaction, for running by hand. The automated cases in `testcases/` do their own inserts instead |
+
+`it_init.sql` is run for you by `node.toml`'s `yt` task before the YT server
+starts, so `cargo make` needs no separate setup step. Override which one
+with `--env INIT=`; `it_init_single.sql` is the same thing with a one-node
+roster, for `--env CNT=1`.
+
+Two rows in `it_init.sql` are worth knowing about before you change
+anything:
+
+- the `'N'` rows are the **roster** — one per node, naming every node the
+  cluster should expect. They are the same on every node, and a node missing
+  from them is a node nobody talks to.
+- the `'C'` rows are settings: `log_level`, `verbose`, `ping_tick_sleep_ms`
+  and so on. Turning up the logging for a debugging session means editing
+  this file, and it takes effect on the next run because the database is
+  rebuilt.
+
 ### Running manually
 
 You can also play around with the tests, make changes to the scripts, and run the tests manually. For example, you can change the debug level in the `it_init.sql` file.
@@ -128,7 +185,7 @@ You can also play around with the tests, make changes to the scripts, and run th
 In general, the script are executed in the following order:
 
 1. `it_init.sql`
-2. `it_preparetest.sql`
+2. `it_prepare_test.sql`
 3. `it_test.sql`
 
 In three consoles, start a node with different `NID` by executing the following commands:
@@ -224,4 +281,22 @@ cargo make killall
 If you have Docker installed, you can play around with tests in a container without messing up the system. In order to deploy the container with these tests, run:
 ```shell
 ./docker.sh
+```
+
+It builds the image and starts a container with this directory bind-mounted
+at `/home/rust`, so the nodes' data directories land in `cluster/` on your
+machine and the SQL and scripts you edit are the ones that run.
+
+The container declares **no volume for PostgreSQL**, which is deliberate:
+see "The database is rebuilt every run" above. The container is disposable,
+and so is everything in it — `docker rm` leaves nothing behind but the
+`cluster/` directory on your side of the mount.
+
+The image installs the `yaxaha` package from the apt repository at build
+time, so a container is only as current as the image. Rebuild it to pick up
+a new package:
+
+```shell
+./docker.sh                      # rebuilds; the layers before apt are cached
+APT_HOST=<host> ./docker.sh      # another apt repo; APT_HOST_IP=<address> if DNS doesn't know it
 ```

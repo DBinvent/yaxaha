@@ -10,3 +10,10 @@
 !/.viminfo
 idea/
 .cl*/
+# CocoIndex Code (ccc)
+/.cocoindex_code/
+local-cluster.md
+cluster-testing.md
+__pycache__/
+/.idea/*.iml
+

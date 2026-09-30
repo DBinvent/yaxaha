@@ -1,15 +1,12 @@
 #!/bin/bash
 set -Eeu
 
-# APT_HOST: the yaxaha package repo host, defaults to the local dev apt server (see Dockerfile ARG APT_HOST).
-# APT_HOST_IP: resolves APT_HOST during the build via 'docker build --add-host', since Docker doesn't
-#              inherit the host's /etc/hosts. Defaults to the local dev apt server's LAN address when
-#              APT_HOST is left at its default; set both to point at a different repo (e.g. a public one).
-APT_HOST="${APT_HOST:-apt}"
+# APT_HOST: the yaxaha package repo host, apt.dbinvent.com by default (see Dockerfile ARG APT_HOST).
+# APT_HOST_IP: optional. Maps APT_HOST to this address during the build via 'docker build --add-host',
+#              since Docker doesn't inherit the host's /etc/hosts: for an apt server of your own that
+#              answers to that name. Unset, the name resolves through DNS.
+APT_HOST="${APT_HOST:-apt.dbinvent.com}"
 APT_HOST_IP="${APT_HOST_IP:-}"
-if [[ -z "$APT_HOST_IP" && "$APT_HOST" == "apt" ]]; then
-  APT_HOST_IP=192.168.1.3
-fi
 
 BUILD_ARGS=(--build-arg "APT_HOST=$APT_HOST")
 if [[ -n "$APT_HOST_IP" ]]; then
