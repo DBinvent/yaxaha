@@ -16,7 +16,8 @@
 #        R3  a ring-hash-sharded table ClickHouse also has: left off yt_llm's
 #            lists, so ClickHouse's copy answers as a table of its own
 #        R4  a ring-hash-sharded table ClickHouse does not have: refused
-# Output: results/run-<UTC time>.log. Exit status 0 when nothing FAILed.
+# Output: results/run-<UTC time>.log. Exit status 0 when nothing FAILed, 77
+# when the model service does not answer (probe.sh) and nothing was tested.
 . "$(dirname "$0")/lib.sh"
 state
 
@@ -28,6 +29,8 @@ check() { # check <label> <1|0> <detail>
     if [ "$2" = 1 ]; then PASSED=$((PASSED + 1)); say "PASS $1: $3"; else FAILED=$((FAILED + 1)); say "FAIL $1: $3"; fi
 }
 say "== yt_llm test $(date -u '+%F %T') UTC, model service $LLM_HOST, questions on $TEST_NODES"
+# a model service that does not answer: skipped (exit 77), not 30 failures
+"$HERE/probe.sh" || exit $?
 
 say "== 1. the model service"
 resolve=(); [ -n "$LLM_HOST_IP" ] && resolve=(--resolve "$LLM_HOST:$LLM_HOST_IP")

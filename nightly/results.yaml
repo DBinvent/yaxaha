@@ -1,0 +1,27 @@
+# yaxaha nightly end-to-end runs, oldest first - one entry per run, appended by
+# nightly/nightly.sh. A page lists them newest first by reading in reverse.
+
+- run: "20261011-050006"
+  started: "2026-10-11T05:00:06Z"
+  finished: "2026-10-11T07:52:41Z"
+  minutes: 173
+  trigger: changes
+  changed: ["rppd", "yt-pgxt"]
+  sources: {"diff-doc-rs": "7da0bf9+dirty", "etcd": "49244a4+dirty", "infra_apt": "a74ff16+dirty", "rdbm": "8e25453+dirty", "rppd": "9b4cf36+dirty", "yaxaha_dist": "d987e51+dirty", "yt-pgxt": "174fe69+dirty"}
+  version: {deb: "0.17.74", ytserv: "0.20.74", bumped: false}
+  steps:
+    - {name: build, result: pass, minutes: 5}
+  suites:
+    - {name: "unit", passed: 488, failed: 0, minutes: 3, result: pass}
+    - {name: "topology", passed: 561, failed: 25, minutes: 72, result: fail}
+    - {name: "hier", passed: 65, failed: 1, minutes: 8, result: fail}
+    - {name: "lxc", passed: 75, failed: 0, minutes: 2, result: pass}
+    - {name: "llm", passed: 101, failed: 0, minutes: 9, result: pass}
+    - {name: "topo", passed: 343, failed: 0, minutes: 28, result: pass}
+    - {name: "topo-faults", passed: 157, failed: 0, minutes: 11, result: pass}
+    - {name: "topo-membership", passed: 88, failed: 0, minutes: 6, result: pass}
+    - {name: "rmc", passed: 881, failed: 0, minutes: 28, result: pass}
+  totals: {passed: 2759, failed: 26}
+  result: fail
+  published: null
+  note: "not published: a suite failed"

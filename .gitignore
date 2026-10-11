@@ -17,3 +17,9 @@ cluster-testing.md
 __pycache__/
 /.idea/*.iml
 
+# settings and nightly state (env.example is the committed template)
+/.env
+/nightly/state/
+/nightly/logs/
+/rmc/.env
+*/results/*.log

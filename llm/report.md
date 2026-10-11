@@ -9,8 +9,8 @@ SELECT * FROM yt_llm('How many delivered orders were placed by customers of each
          AS t(country text, orders bigint);
 ```
 
-You don't write any SQL. The node asks a text-to-SQL model to write it, runs it
-where the data is, and returns the rows. "Where the data is" matters in a
+You don't write the query. The node asks a text-to-SQL model to write it, runs
+it where the data is, and returns the rows. "Where the data is" matters in a
 cluster. A table may be whole on the node you asked, or it may be sharded so
 that each node holds only its own rows. It may live in ClickHouse, next to the
 PostgreSQL cluster. It may also be a table you want computed by DataFusion
@@ -32,21 +32,28 @@ node's cluster daemon, in five steps.
    | list | tables | answered by |
    |---|---|---|
    | `sql` | tables this node holds whole | the node's PostgreSQL |
-   | `df` | tables named for DataFusion, and tables sharded over the nodes | DataFusion, over partitions of the rows the node copies out |
+   | `df` | tables named for DataFusion | DataFusion, over partitions of the rows the node copies out |
    | `ch` | ClickHouse's own catalog | ClickHouse |
 
+   The `df` list also carries the tables this node does not hold whole, marked
+   as such. What happens to those is described under shards, below.
+
 2. **A small model picks the tables.** A 4-billion-parameter model gets the
-   question and the table names, and answers with a JSON list of tables.
+   question and, for each table, its name, comment and columns. It answers with
+   a JSON list of the tables the question needs.
 3. **The node decides the engine** from the lists those tables are on. The model
    picks tables; it never picks where a statement runs.
 4. **That engine's model writes the statement**, in its dialect. PostgreSQL SQL
-   and DataFusion SQL come from a text-to-SQL model tuned for PostgreSQL. ClickHouse
-   SQL comes from a general coding model that knows ClickHouse's functions.
-5. **The node checks the statement, then runs it** as the caller and read-only.
-   PostgreSQL plans the statement without reading anything. ClickHouse parses it.
-   DataFusion plans it over empty tables before a byte is copied. For DataFusion,
-   the node fills a fixed script template with the model's SQL, so the model
-   never writes code that runs.
+   and DataFusion SQL come from a text-to-SQL model. ClickHouse SQL comes from a
+   general coding model that knows ClickHouse's functions.
+5. **The node checks the statement before anything is read, then runs it
+   read-only.** PostgreSQL plans it as the caller, without reading a row.
+   ClickHouse parses and plans it, and it must be a SELECT that reads only
+   ClickHouse's own tables, with no table functions. DataFusion plans it over
+   empty tables before a byte is copied. PostgreSQL, and the copy DataFusion
+   reads, run as the caller's role; ClickHouse runs as a read-only user. For
+   DataFusion, the node fills a fixed script template with the model's SQL, so
+   the model never writes code that runs.
 
 One rule runs through all of it: **never a partial number.** Take a statement
 over a table no engine here holds whole. It is answered where the whole table
@@ -87,11 +94,10 @@ yaxaha can shard a table over its nodes, and it has two kinds of shard.
   ClickHouse. The ClickHouse queries are then spread over the three shards.
 - **The configuration lives in the cluster's own config table.** That covers the
   node roster, the model service's address, and which tables DataFusion reads. It
-  also holds the ClickHouse cluster definition: each yaxaha node renders it into
-  the file its ClickHouse node reads, so an edit to that one row reconfigures
-  ClickHouse without a restart. The client key for the model service and the
-  ClickHouse password are stored encrypted with the node's app key, which is new
-  for every run.
+  also holds the ClickHouse cluster definition, which each yaxaha node renders
+  into the file its ClickHouse node reads. The client key for the model service
+  and the ClickHouse password are stored encrypted with the node's app key, which
+  is new for every run.
 - **The models run on a separate host** behind a TLS proxy that only accepts
   clients with a certificate from its own CA:
 
@@ -118,12 +124,14 @@ and a question has one right answer.
 
 ## The questions
 
-Every question was asked on each of the three nodes. An answer passes when three
-things hold:
+Every question was asked on each of the three nodes. An answered question passes
+when three things hold:
 - the node reports the engine it should;
 - a page of the answer's rows equals a query written by hand, compared as sets
   of values, since the model names columns as it likes;
 - `yt_llm()` returns the same rows.
+
+A refused question passes when the refusal gives the reason it should.
 
 | | question | should be answered by |
 |---|---|---|
@@ -202,8 +210,8 @@ right. This is what happened:
    name. So the ClickHouse statement looked like a PostgreSQL one again, the model
    was asked a second time, and the node gave up.
 
-The fallback to ClickHouse could never succeed, and no earlier test had reached
-it.
+The fallback to ClickHouse failed every time it was taken, and no earlier test
+had taken it.
 
 **The fix** is a few lines in ytserv's router. A statement the node had written
 for ClickHouse now looks its tables up among ClickHouse's own tables, shadowed
@@ -224,18 +232,18 @@ on our three-node lab cluster.
   be refused, and the refusal text is part of what is checked. A partial number
   would have been the real failure.
 - **Every path needs a case.** The ClickHouse fallback was designed, reviewed and
-  documented, but no test had a table that took it. One docker cluster with one
-  pinned shard found the bug in its first run.
+  documented, but no test had a table that took it. The first run with a pinned
+  shard that ClickHouse also has found the bug.
 - **Keep the model on the side.** The models run on another host, reached by name
   with a client certificate. The cluster under test carries no model, no GPU and
   no local addresses, and it rebuilds from scratch in about two minutes.
 
 ## What is not built yet
 
-DataFusion does not yet run over a table that no node holds whole: either a table
-held on another node, or one sharded over several. Until it does, such a question
-is answered from ClickHouse when ClickHouse has the whole table, and refused
-otherwise.
+DataFusion does not yet run over a table that the asked node does not hold whole:
+one held on another node, or one sharded over several. Until it does, such a
+question is answered from ClickHouse when ClickHouse has the whole table, and
+refused otherwise.
 
 ## Run it yourself
 

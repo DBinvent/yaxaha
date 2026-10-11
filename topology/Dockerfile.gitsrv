@@ -1,0 +1,38 @@
+# [P5] A git server over ssh, on the cluster's own network.
+#
+# ssh only, by decision: it is how the real yaxaha and rdbm deployments
+# authenticate to git, and it is the path `rppd_git::ssh_command` /
+# `rdbm::dbm_git::ssh_command` take. The consequence is recorded in PLAN.md §2 —
+# `secret::git_credential_line` returns None for an ssh remote by design, so
+# Phase 6's git-credential branch keeps its unit coverage and gets no
+# integration coverage here.
+#
+# A container rather than a host service: the nodes must reach it by container
+# network name, and a git server on another machine would make these tests
+# depend on something outside the fixture.
+FROM ubuntu:26.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -q && apt-get install -qy --no-install-recommends \
+        git openssh-server ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# The `git` user owns the repositories and is the only account ssh accepts.
+# `--shell /usr/bin/git-shell` would be tighter, but `git-shell` refuses the
+# `rev-parse`/`ls-remote` probes the sync path uses, so the account is ordinary
+# and the restriction is that only one key can authenticate.
+RUN useradd -m -s /bin/bash git \
+    && mkdir -p /home/git/.ssh /srv/git \
+    && chown -R git:git /home/git /srv/git \
+    && chmod 700 /home/git/.ssh
+
+# sshd wants these to exist and refuses to start without the first.
+RUN mkdir -p /run/sshd \
+    && sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config \
+    && sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
+    && sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+
+COPY gitsrv-entrypoint.sh /usr/local/bin/gitsrv-entrypoint.sh
+RUN chmod +x /usr/local/bin/gitsrv-entrypoint.sh
+EXPOSE 22
+ENTRYPOINT ["/usr/local/bin/gitsrv-entrypoint.sh"]

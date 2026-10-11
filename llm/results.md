@@ -1,8 +1,9 @@
 # yt_llm test: results
 
 **Run of 2026-09-30, 14:55 UTC, on the docker host, with every question asked on
-all three nodes: 101 PASS, 0 FAIL.** Every question came back from the engine it
-should, with exactly the rows of a query written by hand, on every node.
+all three nodes: 101 PASS, 0 FAIL.** On every node, every answered question came back
+from the engine it should, with exactly the rows of a query written by hand, and
+both refusals gave the reason they should.
 
 The package was yaxaha 0.16.7 (ytserv 0.19.7). It carries the fix for the one bug
 this test found, the ClickHouse fallback for a pinned shard (below). The raw
@@ -59,10 +60,14 @@ For each answered question there are three checks:
 - the rows of a page of `yt_llm_query`;
 - the rows of `yt_llm()`.
 
-Rows are compared with the query by hand as sets of values. For df, the plan and
-the script are checked as well. The model does not always name a column the same
-way. C2's column was `total_duration_ms` here, and `total_view_duration` in the
-previous run. The values were the same, and the values are what is compared.
+D1 and D2 have a fourth, the plan and the script, and so does R1, the note in
+its answer. A refused question has one check: the refusal and its reason. That
+makes 29 per node.
+
+Rows are compared with the query by hand as sets of values. The model does not
+always name a column the same way: on yt1, C2's column was `total_duration_ms`
+here and `total_view_duration` in the previous run. The values were the same,
+and the values are what is compared.
 
 ## The bug this test found, fixed in ytserv 0.19.7
 

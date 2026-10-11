@@ -82,6 +82,13 @@ every question on all three nodes: each answers from its own view, meaning its o
 ClickHouse node and its own third of each shard. Each node calls the model itself,
 so `TEST_NODES=yt1` takes about a third of the time.
 
+Before anything else `test.sh` runs `probe.sh`: each model must answer a one-token
+chat completion, asked for up to `PROBE_WAIT` seconds (default 300). When one never
+answers, the test exits 77 and nothing is tested, and the nightly run reports the
+suite as skipped rather than failed. The nightly run also probes before it builds
+anything, and again after a failed test. If the model service stopped answering by
+then, the failures say nothing about yaxaha, so that run is reported as skipped too.
+
 ## What up.sh configures
 
 The same rows go into `public.yt_config` on every node. The row `C cfg_ready` is
@@ -154,6 +161,7 @@ own guess, and the node refuses whatever that reads.
 | `data/pg.sql`, `data/ch.sql` | the sample data |
 | `data/grade.sql` | how an answer is graded |
 | `build.sh`, `up.sh`, `test.sh`, `down.sh` | the scripts |
+| `probe.sh` | is the model service answering? exit 77 when not: the suite is skipped |
 | `env.example` | the settings, to copy to `.env` |
 | `report.md` | the article: how a question is routed, the test, its results and the bug it found |
 | `results.md` | the last run, in detail |

@@ -12,12 +12,46 @@ tests, each with its write-up:
 | | |
 |---|---|
 | [llm/](llm/README.md) | `yt_llm`: questions in plain language, answered by PostgreSQL, DataFusion or ClickHouse, on a docker cluster of three yaxaha and three ClickHouse nodes. The article: [llm/report.md](llm/report.md); the run: [llm/results.md](llm/results.md) |
+| [rmc/](rmc/README.md) | resilience and membership under change: three linked clusters (one above two) keep every acknowledged write and their boundaries while nodes are added at runtime on every level, leadership moves, nodes restart, and a whole cluster is replaced one node at a time. The plan: [rmc/plan.md](rmc/plan.md); the run: [rmc/results.md](rmc/results.md) |
 | [cluster-test1.md](cluster-test1.md) | where the time goes in a 3-node cluster, against PostgreSQL's own synchronous replication; harness [cluster-test1-matrix.sh](cluster-test1-matrix.sh) |
 | [cluster-test2.md](cluster-test2.md) | HPC: subterm leases against the per-statement checkin round trip |
 | [cluster-test3.md](cluster-test3.md) | the leader forced onto the node that originates the writes; harness [cluster-test3-matrix.sh](cluster-test3-matrix.sh) |
 | [pgbench_single.md](pgbench_single.md) | one plain PostgreSQL per host: TPS per CPU TFLOPS |
 | [BENCH.md](BENCH.md) | the plan for pgbench on one PostgreSQL against a cluster, not yet run; its tools are in [bench/](bench/), the multi-host driver in [bench/cluster/](bench/cluster/README.md) |
 | [pipeline/](pipeline/README.md) | the on-commit chain pgbench → Python → etcd queue → Python → ClickHouse, and an etcd queue written straight into ClickHouse |
+| [topology/](topology/README.md) | one cluster of seven nodes in docker (fixture A, `run_all.sh`): az, tier, shard, write zones, reshape, recon, alerts, blocking, recovery, partitions, rppd server functions, the etcd API, the ClickHouse sink, MPP and DataFusion, jsonb merge, SKV join, the commit path, concurrency, network splits, peer streaming. The plan: [topology/PLAN.md](topology/PLAN.md) |
+| [hier/](hier/run_all.sh) | three linked clusters on one network: relations, quorum, dialling, tables across the boundary, neighbours, failover |
+| [lxc/](lxc/README.md) | the package in a disposable LXC container: install, `yxctl --batch`, purge and reinstall, the failure cases of each |
+| [topo/](topo/README.md) | the runtime topology jobs on the rmc layout: the job layer, az create/delete, moves with purge, approval from above and locks, split/combine, faults, refusals, membership |
+| [llm/lab/](llm/lab/test-yt-llm.sh) | `yt_llm` and the models against a live cluster (`YT_LLM_NODES`), not docker - run by hand |
+| [nightly/](nightly/nightly.sh) | every suite above but llm/lab, each night a watched repository changed; publishes the deb and the EL9 rpm when all pass. Results: [nightly/results.yaml](nightly/results.yaml) |
+
+All of them build from a yt-pgxt checkout next to this one (`YT_PGXT` to point
+elsewhere) and read their settings from `.env` (see [env.example](env.example));
+rmc/ and llm/ keep their own `.env`.
+
+## Nightly
+
+`nightly/nightly.sh`, from cron at 05:00 UTC on the build host:
+
+1. fingerprints the `.rs` files of every watched repository (yt-pgxt and the
+   local repositories its build uses - rppd, rdbm, diff-doc-rs - plus etcd,
+   yaxaha_dist, infra_apt; never this one), committed or not, and stops when no
+   `.rs` file changed since the last tested run - then nothing is built, nothing
+   appended to results.yaml, no package made;
+2. bumps the deb's patch version when it is already published (and ytserv's, when
+   ytserv changed since its version was published);
+3. builds the extension for every PostgreSQL major and the PostgreSQL 18 package,
+   and runs unit, topology, hier, lxc, llm, topo (t0-t4, t6), topo faults (t5),
+   topo membership (t7) and rmc;
+4. when every suite passed - a test of a known gap fails until the gap is fixed,
+   so it blocks too - builds the release (every glibc target, EL9) and publishes
+   the deb to the apt repository and the rpm to its `yum/el9`;
+5. appends the run to `nightly/results.yaml`, oldest first, for a page to read in
+   reverse.
+
+`nightly.sh --dry-run` says what a run would do; `--force` runs with nothing
+changed; `--no-publish` tests only.
 
 ## Preparations
 

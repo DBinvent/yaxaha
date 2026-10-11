@@ -50,7 +50,15 @@ CREATE TABLE IF NOT EXISTS public.rppd_cron (
     timeout_sec int,
     finished_at timestamptz,
     started_at timestamptz,
-    error_msg text
+    error_msg text,
+    watch_min int not null default 0,
+    retry_sec int not null default 0,
+    watch_q varchar(256),
+    deadline_q varchar(256),
+    state varchar(16) not null default 'ok',
+    last_seen timestamptz,
+    since timestamptz,
+    attempt int not null default 0
 );
 
 -- The table pgbench INSERTs into. on_commit_python fires fn #1 for each row.
