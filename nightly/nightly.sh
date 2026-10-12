@@ -32,6 +32,10 @@
 #    the EL9 rpm into REPO_DIR/yum/el9. Any failure anywhere publishes nothing.
 # 6. The run is appended to nightly/results.yaml, oldest first: a page shows it
 #    newest first by reading the list in reverse.
+# 7. nightly/badge.json is rewritten from it (nightly/badge.py) - the badge
+#    dbinvent.com shows, which shields.io reads from GitHub. NIGHTLY_PUSH=1
+#    commits the two files and pushes them, on main and only when no other
+#    commit is waiting to be pushed; otherwise they wait for a hand push.
 #
 # Coverage: a run that finds nightly/coverage.yaml missing measures it - so
 # renaming or deleting that file has the next night measure again, and with no
@@ -534,6 +538,22 @@ if e["NOTE"]:
 with open(e["RESULTS"], "a") as fh:
     fh.write("\n".join(out) + "\n")
 EOF
+
+# ── 7. the badge ────────────────────────────────────────────────────────────────
+# a run never pushes work in progress along with its badge: not on main, or with
+# commits of its own waiting there, the files wait for a hand push
+python3 "$HERE/badge.py" || say "   badge not written"
+if [ "${NIGHTLY_PUSH:-0}" = 1 ]; then
+	if [ "$(git -C "$TESTS" rev-parse --abbrev-ref HEAD)" != main ] \
+	   || [ -n "$(git -C "$TESTS" rev-list origin/main..HEAD 2>/dev/null)" ]; then
+		say "   badge not pushed: not on main, or unpushed commits wait there"
+	elif git -C "$TESTS" commit -q -m "nightly $RUN_ID: $RESULT" -- nightly/results.yaml nightly/badge.json \
+	     && git -C "$TESTS" push -q origin HEAD:main; then
+		say "   badge pushed"
+	else
+		say "   badge not pushed"
+	fi
+fi
 say "== nightly $RESULT: $(awk -F'\t' '$1!="build"&&$1!="coverage-build"&&$1!="coverage"&&$1!="release"&&$1!="publish"{p+=$2;f+=$3} END{print p+0" passed, "f+0" failed"}' "$ROWS"), $(( ($(secs) - T0) / 60 )) min${PUBLISHED_DEB:+, published $PUBLISHED_DEB}${NOTE:+ - $NOTE}"
 say "   logs: $LOGS"
 [ "$RESULT" = pass ]
