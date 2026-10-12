@@ -24,7 +24,7 @@ tests, each with its write-up:
 | [lxc/](lxc/README.md) | the package in a disposable LXC container: install, `yxctl --batch`, purge and reinstall, the failure cases of each |
 | [topo/](topo/README.md) | the runtime topology jobs on the rmc layout: the job layer, az create/delete, moves with purge, approval from above and locks, split/combine, faults, refusals, membership |
 | [llm/lab/](llm/lab/test-yt-llm.sh) | `yt_llm` and the models against a live cluster (`YT_LLM_NODES`), not docker - run by hand |
-| [nightly/](nightly/nightly.sh) | every suite above but llm/lab, each night a watched repository changed; publishes the deb and the EL9 rpm when all pass. Results: [nightly/results.yaml](nightly/results.yaml) |
+| [nightly/](nightly/nightly.sh) | every suite above but llm/lab, each night a watched repository changed; publishes the deb and the EL9 rpm when all pass. Results: [nightly/results.yaml](nightly/results.yaml); code coverage: [nightly/coverage.yaml](nightly/coverage.yaml) |
 
 All of them build from a yt-pgxt checkout next to this one (`YT_PGXT` to point
 elsewhere) and read their settings from `.env` (see [env.example](env.example));
@@ -52,6 +52,26 @@ rmc/ and llm/ keep their own `.env`.
 
 `nightly.sh --dry-run` says what a run would do; `--force` runs with nothing
 changed; `--no-publish` tests only.
+
+### Coverage
+
+A run that finds `nightly/coverage.yaml` missing also measures code coverage: the
+lines of yt-pgxt's Rust workspace that the unit tests and every end-to-end suite
+ran. Rename or delete the file and the next night measures again - with no `.rs`
+change it runs for that alone, and publishes nothing. `--coverage` measures in the
+run started by hand. [nightly/coverage.sh](nightly/coverage.sh) does the work:
+
+- an instrumented ytserv and yxctl (yt-pgxt's own crates only) in a second
+  package, which every suite installs instead of the plain one - topology, hier,
+  llm, rmc and topo mount a docker volume per suite where the processes write their
+  counts, every 5 s so a killed node keeps them; lxc pushes the instrumented
+  binaries and copies the counts out before deleting its container;
+- the unit tests under `cargo llvm-cov`;
+- the report: `nightly/coverage.yaml` (total, per crate, per suite) and a
+  `coverage:` percent in the run's results.yaml entry; per-file tables and HTML in
+  the run's logs.
+
+Needs `cargo-llvm-cov` and `rustup component add llvm-tools-preview` on the build host.
 
 ## Preparations
 

@@ -471,7 +471,7 @@ for n in "${NODES[@]}"; do
 	u="$(node_uuid "$n")"
 	rh "docker rm -f $n >/dev/null 2>&1; true" || true
 	if ! rh "docker run -d --name $n --hostname $n --network $YX_NET \
-		-e NODE_UUID=$u -e DB=postgres -e CFG_TABLE=$YX_CFG $YX_IMAGE >/dev/null"; then
+		-e NODE_UUID=$u -e DB=postgres -e CFG_TABLE=$YX_CFG ${YX_COV_MOUNT:-} $YX_IMAGE >/dev/null"; then
 		bad "docker run $n from $YX_IMAGE failed"
 		summary
 	fi

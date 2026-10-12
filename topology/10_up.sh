@@ -22,8 +22,10 @@ for n in "${NODES[@]}"; do
 		dbu="-e DB_URL=postgresql://postgres@127.0.0.1:5432/$YX_DB"
 		echo "  $n: TCP-attached PostgreSQL (forever-Spare)"
 	fi
+	# YX_COV_MOUNT: a coverage run's volume for the instrumented ytserv's counts
+	# (nightly/coverage.sh); unset otherwise.
 	rh "docker run -d --name $n --hostname $n --network $YX_NET \
-		-e NODE_UUID=$u -e DB=$YX_DB -e CFG_TABLE=$YX_CFG -e SECRET=$YX_SECRET $dbu \
+		-e NODE_UUID=$u -e DB=$YX_DB -e CFG_TABLE=$YX_CFG -e SECRET=$YX_SECRET $dbu ${YX_COV_MOUNT:-} \
 		$YX_IMAGE >/dev/null"
 done
 

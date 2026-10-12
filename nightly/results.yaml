@@ -25,3 +25,52 @@
   result: fail
   published: null
   note: "not published: a suite failed"
+- run: "20261011-154530"
+  started: "2026-10-11T15:45:30Z"
+  finished: "2026-10-11T18:39:35Z"
+  minutes: 174
+  trigger: changes
+  changed: ["yt-pgxt"]
+  sources: {"diff-doc-rs": "7da0bf9+dirty", "etcd": "49244a4+dirty", "infra_apt": "a74ff16+dirty", "rdbm": "8e25453+dirty", "rppd": "9b4cf36+dirty", "yaxaha_dist": "d987e51+dirty", "yt-pgxt": "174fe69+dirty"}
+  version: {deb: "0.17.78", ytserv: "0.20.78", bumped: false}
+  steps:
+    - {name: build, result: pass, minutes: 3}
+  suites:
+    - {name: "unit", passed: 488, failed: 0, minutes: 3, result: pass}
+    - {name: "topology", passed: 587, failed: 0, minutes: 78, result: pass}
+    - {name: "hier", passed: 66, failed: 0, minutes: 6, result: pass}
+    - {name: "lxc", passed: 75, failed: 0, minutes: 2, result: pass}
+    - {name: "llm", passed: 101, failed: 0, minutes: 9, result: pass}
+    - {name: "topo", passed: 343, failed: 0, minutes: 28, result: pass}
+    - {name: "topo-faults", passed: 154, failed: 1, minutes: 12, result: fail}
+    - {name: "topo-membership", passed: 88, failed: 0, minutes: 6, result: pass}
+    - {name: "rmc", passed: 879, failed: 0, minutes: 28, result: pass}
+  totals: {passed: 2781, failed: 1}
+  result: fail
+  published: null
+  note: "not published: a suite failed"
+- run: "20261012-050005"
+  started: "2026-10-12T05:00:05Z"
+  finished: "2026-10-12T08:53:08Z"
+  minutes: 233
+  trigger: changes
+  changed: ["yt-pgxt"]
+  sources: {"diff-doc-rs": "7da0bf9+dirty", "etcd": "49244a4+dirty", "infra_apt": "a74ff16+dirty", "rdbm": "8e25453+dirty", "rppd": "9b4cf36+dirty", "yaxaha_dist": "d987e51+dirty", "yt-pgxt": "fc97e58+dirty"}
+  version: {deb: "0.18.81", ytserv: "1.1.81", bumped: false}
+  steps:
+    - {name: build, result: pass, minutes: 5}
+    - {name: release, result: pass, minutes: 58}
+    - {name: publish, result: pass, minutes: 0}
+  suites:
+    - {name: "unit", passed: 489, failed: 0, minutes: 3, result: pass}
+    - {name: "topology", passed: 597, failed: 0, minutes: 77, result: pass}
+    - {name: "hier", passed: 66, failed: 0, minutes: 6, result: pass}
+    - {name: "lxc", passed: 75, failed: 0, minutes: 2, result: pass}
+    - {name: "llm", passed: 101, failed: 0, minutes: 8, result: pass}
+    - {name: "topo", passed: 343, failed: 0, minutes: 28, result: pass}
+    - {name: "topo-faults", passed: 161, failed: 0, minutes: 11, result: pass}
+    - {name: "topo-membership", passed: 88, failed: 0, minutes: 7, result: pass}
+    - {name: "rmc", passed: 879, failed: 0, minutes: 28, result: pass}
+  totals: {passed: 2799, failed: 0}
+  result: pass
+  published: {deb: "0.18.81", rpm: "0.18.81"}

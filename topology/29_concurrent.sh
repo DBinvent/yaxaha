@@ -9,6 +9,7 @@
 #        never be refused as "behind"
 #   C11  a hot table of 10 rows, 8 concurrent writers incrementing random rows
 #        from different origins for 30 s: every node identical afterwards
+#   C14  C11 with a plain COMMIT (auto_complete) instead of yt_complete(true)
 #
 # ## C11 and C12 - known gaps until ytserv 0.20.61
 #
@@ -25,7 +26,15 @@
 # writes to every synced table (`Recon::mark_outdated` is coarse on purpose).
 # It passed in the 2026-10-10 nightly (0.17.58); kept as a regression check.
 #
-# Order is C10, C12, C11: least disruptive first, so each result is read against
+# C14: C11 as an ordinary client writes - a plain COMMIT, no yt_complete(true).
+# Until ytserv 1.1.81 it diverged every run (484 acknowledged, one node at 272):
+# a party member the origin dropped when its statement missed the call's deadline
+# still ran the statement and kept its session open, holding the row - every
+# later apply of the row queued behind it - and its copy of the write was then
+# closed as committed without ever being applied. C11 had the same fault and
+# passed by luck. Now the dropped member is told and rolls the session back.
+#
+# Order is C10, C12, C11, C14: least disruptive first, so each result is read against
 # a cluster the previous one did not break. Between sections the cluster must
 # become writable again before the next one starts.
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
@@ -49,6 +58,11 @@ err_of() {
 cw() { # cw <node> <statements> [timeout] -> "" when the cluster write committed, else the error
 	local o
 	o="$(qx "$1" "begin; $2; select yt_complete(true); commit;" "${3:-60s}")"
+	err_of "$o"
+}
+cwc() { # cwc: cw with a plain COMMIT - the cluster commit is auto_complete's
+	local o
+	o="$(qx "$1" "begin; $2; commit;" "${3:-60s}")"
 	err_of "$o"
 }
 qt() { # env.sh's q plus a statement_timeout, so a wedged ytserv cannot hang a poll
@@ -220,60 +234,74 @@ check "C12 no write to cb_t is refused as behind/outdated (of $b_try)" "0" "$b_g
 [ "$b_other" -eq 0 ] || echo "     other refusals (not this check's subject): $b_other - first: ${other_first:0:200}"
 settle "C12"
 
-# ── C11: a hot small table under 8 concurrent writers ────────────
-echo "  -- C11: 10 hot rows, 8 writers for 30 s"
-# Seeded one row per transaction: the seed is setup, so it must not be the
-# flaky part (80_recon's lesson).
-for i in $(seq 1 10); do cw "$REF" "insert into hot_t values ($i, 0)" >/dev/null; done
-wait_all 30 hot_t "id > 0 and v = 0" 10 || true
-check "C11 setup: 10 hot rows, all zero, on every node" "" "$(lacking hot_t "id > 0 and v = 0" 10)"
+# ── C11 / C14: a hot small table under 8 concurrent writers ──────────────────
+# hot_case <label> <writer> <first id>: 10 rows from <first id>, 8 writers for
+# 30 s, each increment one transaction committed by <writer> (cw or cwc).
+hot_case() {
+	local L="$1" W="$2" lo="$3" hi=$(($3 + 9)) i w o p pids=() hacked=0 hrefused=0 hfirst="" n s diff="" refsum
+	local R="id between $lo and $hi"
+	echo "  -- $L: 10 hot rows, 8 writers for 30 s ($( [ "$W" = cw ] && echo "yt_complete(true), then COMMIT" || echo "plain COMMIT"))"
+	# Seeded one row per transaction: the seed is setup, so it must not be the
+	# flaky part (80_recon's lesson).
+	for i in $(seq "$lo" "$hi"); do cw "$REF" "insert into hot_t values ($i, 0)" >/dev/null; done
+	wait_all 30 hot_t "$R and v = 0" 10 || true
+	check "$L setup: 10 hot rows, all zero, on every node" "" "$(lacking hot_t "$R and v = 0" 10)"
+	rm -f "$TMP"/w*.ok "$TMP"/w*.err
+	for w in 0 1 2 3 4 5 6 7; do
+		o="${VOTERS[$(( w % NV ))]}"
+		(
+			RANDOM=$((w * 7919 + 17))   # each writer its own sequence of rows
+			end=$((SECONDS + 30))
+			while [ "$SECONDS" -lt "$end" ]; do
+				id=$((RANDOM % 10 + lo))
+				e="$("$W" "$o" "update hot_t set v = v + 1 where id = $id" 20s)"
+				if [ -z "$e" ]; then echo "$id" >> "$TMP/w$w.ok"; else echo "$e" >> "$TMP/w$w.err"; fi
+			done
+		) &
+		pids+=($!)
+	done
+	for p in "${pids[@]}"; do wait "$p" || true; done
+	for w in 0 1 2 3 4 5 6 7; do
+		hacked=$((hacked + $(lines "$TMP/w$w.ok")))
+		hrefused=$((hrefused + $(lines "$TMP/w$w.err")))
+		[ -n "$hfirst" ] || [ ! -s "$TMP/w$w.err" ] || hfirst="$(head -1 "$TMP/w$w.err")"
+	done
+	echo "     acknowledged $hacked increments, refused $hrefused${hfirst:+ - first: ${hfirst:0:140}}"
+	[ "$hacked" -gt 0 ] \
+		&& ok "$L the writers committed ($hacked increments acknowledged)" \
+		|| bad "$L no increment committed - the comparison below would be vacuous"
 
-pids=()
-for w in 0 1 2 3 4 5 6 7; do
-	o="${VOTERS[$(( w % NV ))]}"
-	(
-		RANDOM=$((w * 7919 + 17))   # each writer its own sequence of rows
-		end=$((SECONDS + 30))
-		while [ "$SECONDS" -lt "$end" ]; do
-			id=$((RANDOM % 10 + 1))
-			e="$(cw "$o" "update hot_t set v = v + 1 where id = $id" 20s)"
-			if [ -z "$e" ]; then echo "$id" >> "$TMP/w$w.ok"; else echo "$e" >> "$TMP/w$w.err"; fi
-		done
-	) &
-	pids+=($!)
-done
-for p in "${pids[@]}"; do wait "$p" || true; done
-hacked=0; hrefused=0; hfirst=""
-for w in 0 1 2 3 4 5 6 7; do
-	hacked=$((hacked + $(lines "$TMP/w$w.ok")))
-	hrefused=$((hrefused + $(lines "$TMP/w$w.err")))
-	[ -n "$hfirst" ] || [ ! -s "$TMP/w$w.err" ] || hfirst="$(head -1 "$TMP/w$w.err")"
-done
-echo "     acknowledged $hacked increments, refused $hrefused${hfirst:+ - first: ${hfirst:0:140}}"
-[ "$hacked" -gt 0 ] \
-	&& ok "C11 the writers committed ($hacked increments acknowledged)" \
-	|| bad "C11 no increment committed - the comparison below would be vacuous"
-
-HDIG="select md5(string_agg(id::text||':'||v, ',' order by id)) from hot_t where id > 0"
-wait_converged 60 "$HDIG" || true
-for n in "${NODES[@]}"; do
-	[ "$n" = "$REF" ] && continue
-	check_same "C11 $n agrees with $REF on the hot table" "$REF" "$n" "$HDIG" 10 hot_t
-done
-refsum="$(qt "$REF" "select coalesce(sum(v),0) from hot_t where id > 0")"
-diff=""
-for n in "${NODES[@]}"; do
-	s="$(qt "$n" "select coalesce(sum(v),0) from hot_t where id > 0")"
-	[ "$s" = "$refsum" ] || diff+="$n=${s:-?} "
-done
-check "C11 sum(v) is the same on every node ($REF has $refsum)" "" "${diff% }"
-# Every acknowledged increment is one, and only acknowledged ones count: fewer is
-# a lost update, more is an increment the client was told failed.
-check "C11 sum(v) on $REF equals the acknowledged increments" "$hacked" "$refsum"
+	HDIG="select md5(string_agg(id::text||':'||v, ',' order by id)) from hot_t where $R"
+	wait_converged 60 "$HDIG" || true
+	for n in "${NODES[@]}"; do
+		[ "$n" = "$REF" ] && continue
+		check_same "$L $n agrees with $REF on the hot table" "$REF" "$n" "$HDIG" 10 hot_t
+	done
+	refsum="$(qt "$REF" "select coalesce(sum(v),0) from hot_t where $R")"
+	for n in "${NODES[@]}"; do
+		s="$(qt "$n" "select coalesce(sum(v),0) from hot_t where $R")"
+		[ "$s" = "$refsum" ] || diff+="$n=${s:-?} "
+	done
+	check "$L sum(v) is the same on every node ($REF has $refsum)" "" "${diff% }"
+	# which rows differ, read off the log of the run that failed
+	[ -z "$diff" ] || for n in "${NODES[@]}"; do
+		echo "     $n: $(qt "$n" "select string_agg(id::text||':'||v, ' ' order by id) from hot_t where $R")"
+	done
+	# Every acknowledged increment is one, and only acknowledged ones count: fewer is
+	# a lost update, more is an increment the client was told failed.
+	check "$L sum(v) on $REF equals the acknowledged increments" "$hacked" "$refsum"
+}
+hot_case C11 cw 1
+settle "C11"
+# C14: the same, committed the way an ordinary client commits - a plain COMMIT,
+# which yaxaha.auto_complete (default on) turns into the cluster commit: the
+# party PREPAREs at the commit's start, the origin commits, the party COMMITs
+# PREPARED after it.
+hot_case C14 cwc 11
 
 # ── leave the cluster writable for the next script ──────────────────────────
 if ! wait_writable "$REF" "${VOTERS[1]}" cc_t >/dev/null 2>&1; then
-	echo "  NOTE: not writable after C11 - restarting the cluster"
+	echo "  NOTE: not writable after C14 - restarting the cluster"
 	restart_all
 	await_cluster
 fi

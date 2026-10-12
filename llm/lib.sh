@@ -61,12 +61,14 @@ net_up() {
     done
 }
 
+# YX_COV_MOUNT: a coverage run's volume for the instrumented ytserv's counts
+# (nightly/coverage.sh); unset otherwise.
 node_run() { # node_run <1|2|3>
     local i="$1" n="yt$1" uuid_var="YT$1_UUID" add=()
     [ -n "$LLM_HOST_IP" ] && add=(--add-host "${LLM_HOST%:*}:$LLM_HOST_IP")
     docker run -d --name "$(cname "$n")" --hostname "$n" --network ytllm --network-alias "$n" \
         -e NODE_UUID="${!uuid_var}" -e SECRET="$YT_SECRET" -e DB="$DB" \
-        -v "ytllm-chcfg$i:/etc/yaxaha/clickhouse" "${add[@]}" "$IMAGE" >/dev/null || return 1
+        -v "ytllm-chcfg$i:/etc/yaxaha/clickhouse" ${YX_COV_MOUNT:-} "${add[@]}" "$IMAGE" >/dev/null || return 1
     docker network connect "ytllm-pair$i" "$(cname "$n")"
 }
 

@@ -10,8 +10,9 @@
 # a split loses a node of the zone during its cut, the cluster it made loses its
 # leader during the combine back, and a second split loses the leader of the
 # cluster it splits during its cut. Each job resumes and ends as it would have:
-# J5. At the end every job row on every cluster is finished with a reason and no
-# lock is left held: T8.
+# J5. First the leader dies between yt_complete(true) and its COMMIT, and its
+# members must agree on the row: J9. At the end every job row on every cluster is
+# finished with a reason and no lock is left held: T8.
 # Writes results/t5-<time>.log; exits 0 when no check failed.
 C=west
 . "$(dirname "$0")/lib.sh"
@@ -42,6 +43,35 @@ table() { # table <name> on every member of west, synced
 
 mark
 for c in "${CLUSTERS[@]}"; do jobs_on "$c"; done
+
+# ── J9: the origin dies between yt_complete(true) and its own COMMIT ────────
+# yt_complete(true) commits the party before the origin's COMMIT: an origin killed
+# in between kept no row and its members kept one, for good (nightly
+# 20261011-154530, west I2). Its restart now applies the row from its own WAL: the
+# members agree - the row everywhere or nowhere - and nothing stays prepared.
+say "-- $(now) J9: west's leader dies between yt_complete(true) and its COMMIT"
+sleeping() { [ "$(QT=20 q "$1" -c "select count(*) from pg_stat_activity where query = 'select pg_sleep(120)'" 2>/dev/null)" = 1 ]; }
+held_by() { local n; for n in $(members $C); do has_id "$n" rmc_ledger "$1" && printf ' %s' "$n"; done; }
+agree() { local h; h=$(held_by "$1"); [ -z "$h" ] || [ "$(echo $h)" = "$(members $C)" ]; }
+has_leader() { [ -n "$(leader_of $C)" ]; }
+O=$(leader_of $C); oid=$(( ${ID_BASE[$C]} + 900000000 + $(date +%s) % 100000 ))
+docker exec -d -u postgres "$(cname "$O")" bash -c "psql -d $DB -X -q -At -c begin \
+    -c \"insert into rmc_ledger (id, node, v) values ($oid, '$O', 'j9')\" -c 'select yt_complete(true)' \
+    -c 'select pg_sleep(120)' -c commit >/dev/null 2>&1"
+wait_for 30 sleeping "$O" && ok "J9 yt_complete(true) returned on $O, its COMMIT not sent" || bad "J9 yt_complete(true) returned on $O within 30s"
+docker kill "$(cname "$O")" >/dev/null
+sleep 20
+docker start "$(cname "$O")" >/dev/null
+wait_for 180 good "$O" && ok "J9 $O back as $(node_state "$O")" || bad "J9 $O back within 180s: [$(node_status "$O")]"
+if wait_for 120 agree "$oid"; then h=$(held_by "$oid"); ok "J9 the members agree on the row: $([ -n "$h" ] && echo "held by$h" || echo "on none")"
+else bad "J9 the members agree on the row: held by$(held_by "$oid") of $(members $C)"; fi
+# and nothing left prepared to hold its locks: the party rolls back what it prepared
+stale() { local n c=0; for n in $(members $C); do c=$((c + $(QT=20 q "$n" -c "select count(*) from pg_prepared_xacts where prepared < now() - interval '30 seconds'" 2>/dev/null || echo 1))); done; echo "$c"; }
+no_stale() { [ "$(stale)" = 0 ]; }
+wait_for 90 no_stale && ok "J9 no member holds a prepared transaction older than 30s" \
+    || bad "J9 prepared transactions older than 30s left: $(for n in $(members $C); do printf '%s=%s ' "$n" "$(QT=20 q "$n" -c "select count(*) from pg_prepared_xacts where prepared < now() - interval '30 seconds'" 2>/dev/null)"; done)"
+wait_for 60 has_leader || bad "J9 west elects a leader after $O"
+
 L=$(leader_of $C)
 read -r X1 X2 _ <<< "$(for n in $(members $C); do [ "$n" = "$L" ] || echo "$n"; done | tail -2 | tr '\n' ' ')"
 ALL=$(members $C)

@@ -8,16 +8,16 @@ if [ -n "$YX_DEB" ]; then
 	lxc file push "$YX_DEB" "$YX_CONTAINER/tmp/yaxaha.deb"
 	xc env DEBIAN_FRONTEND=noninteractive apt-get install -qy /tmp/yaxaha.deb
 else
-	echo "No YX_DEB set — pushing binaries from target/release ..."
+	echo "No YX_DEB set — pushing binaries from $YX_BIN_DIR ..."
 	for b in yxctl ytserv; do
-		if [ ! -x "$REPO_ROOT/target/release/$b" ]; then
-			echo "missing $REPO_ROOT/target/release/$b — run: cargo build --release" >&2
+		if [ ! -x "$YX_BIN_DIR/$b" ]; then
+			echo "missing $YX_BIN_DIR/$b — run: cargo build --release" >&2
 			exit 1
 		fi
 	done
 	xc mkdir -p /usr/local/bin/yaxaha /usr/local/include/yaxaha
-	lxc file push "$REPO_ROOT/target/release/yxctl" "$YX_CONTAINER/usr/local/bin/yxctl"
-	lxc file push "$REPO_ROOT/target/release/ytserv" "$YX_CONTAINER/usr/local/bin/yaxaha/ytserv"
+	lxc file push "$YX_BIN_DIR/yxctl" "$YX_CONTAINER/usr/local/bin/yxctl"
+	lxc file push "$YX_BIN_DIR/ytserv" "$YX_CONTAINER/usr/local/bin/yaxaha/ytserv"
 	# per-libc variants (deb layout) when built — exercises find_bin's best-match
 	# selection among ytserv, ytserv-glibc2_35, ytserv-musl
 	for v in "$REPO_ROOT"/target/glibc*/ytserv-glibc* "$REPO_ROOT"/target/musl/ytserv-musl; do

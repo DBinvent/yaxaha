@@ -62,10 +62,12 @@ echo "  disabling $trg on n4, corrupting row 7, re-enabling"
 # the errors thrown away let a lock timeout on the ALTER (recon was rewriting
 # rc_t under load then) skip the corruption, and the check below read the
 # original value - "expected [CORRUPT] got [good-7]" on 2026-10-11.
+divergent() { info n4 E recon | sed -n 's/.* \([0-9][0-9]*\) divergent.*/\1/p'; }
+div0="$(divergent)"
 for try in 1 2 3; do
 	out="$(qe n4 "begin;
 	      alter table rc_t disable trigger $trg;
-	      update rc_t set v='CORRUPT' where id=7;
+	      update rc_t set v='CORRUPT' where id=7 returning v;
 	      alter table rc_t enable trigger $trg;
 	      commit;")" || true
 	case "$out" in
@@ -73,7 +75,15 @@ for try in 1 2 3; do
 		*) break ;;
 	esac
 done
-check "n4 is now divergent on row 7" "CORRUPT" "$(q n4 "select v from rc_t where id=7")"
+case "$out" in *ERROR*|"") ok_c="";; *CORRUPT*) ok_c=CORRUPT;; *) ok_c="";; esac
+check "n4 row 7 corrupted, the cluster not told" "CORRUPT" "${ok_c:-[$out]}"
+# Divergent now - or already repaired: recon, sweeping since the case's restart,
+# can find and fix the row before this read (2026-10-11: counters "1 divergent, 1
+# repaired", the read "good-7"). Its divergent counter going up says so.
+v="$(q n4 "select v from rc_t where id=7")"; div1="$(divergent)"
+if [ "$v" = CORRUPT ]; then ok "n4 is now divergent on row 7"
+elif [ -n "$div1" ] && [ "${div1:-0}" -gt "${div0:-0}" ]; then ok "n4 was divergent on row 7 - recon already caught it (divergent ${div0:-0} -> $div1, row now [$v])"
+else bad "n4 is now divergent on row 7 - expected [CORRUPT] got [$v], recon divergent ${div0:-?} -> ${div1:-?}"; fi
 check "every other node still has the good value" "good-7" "$(q n2 "select v from rc_t where id=7")"
 
 # ── make the table due so a round runs, then let recon work ────────────────

@@ -14,6 +14,10 @@ YX_CONTAINER="${YX_CONTAINER:-yxctl-test}"
 YX_IMAGE="${YX_IMAGE:-ubuntu:24.04}"
 # path to a built .deb; when unset, raw binaries are pushed from target/release
 YX_DEB="${YX_DEB:-}"
+# where those raw binaries come from; a coverage run points it at its instrumented
+# build (nightly/coverage.sh), and sets YX_COV_OUT for 90_destroy to save their counts in
+YX_BIN_DIR="${YX_BIN_DIR:-$REPO_ROOT/target/release}"
+YX_COV_OUT="${YX_COV_OUT:-}"
 # config table used by the batch test
 YX_TARGET="${YX_TARGET:-public.yt_config}"
 # container NIC: "bridge" (lxdbr0, default) or "macvlan" (own LAN address via DHCP).

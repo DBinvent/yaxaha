@@ -45,10 +45,21 @@
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 echo "== skv join: a runtime joiner is admitted only on proof =="
 
-# n6 is the subject. Chosen because it is a leaf in every az layout the suite
-# uses, so pausing it cannot take quorum with it.
-SUBJECT=n6
-SUBJECT_UUID="$(node_uuid "$SUBJECT")"
+# The subject: a voter that is NOT the leader, n6 first - a leaf in every az
+# layout the suite uses, so pausing it cannot take quorum with it. Picked again
+# after each restart: a leader cannot be paused (pause is a handover, the node
+# stays Leader), and when the election after the skv-on restart picked n6 itself
+# that read as "the subject was admitted WITHOUT proof" - the nightlies of
+# 2026-10-09..11, reproduced 2026-10-11 with leader_uuid = n6 on every node.
+SUBJECT=""; SUBJECT_UUID=""
+pick_subject() {
+	local c
+	for c in n6 $(printf '%s\n' "${NODES[@]}" | tac); do
+		is_spare_node "$c" && continue
+		[ "$c" = "${L:-}" ] && continue
+		SUBJECT="$c"; SUBJECT_UUID="$(node_uuid "$c")"; return 0
+	done
+}
 
 leader_node() {
 	local n
@@ -58,6 +69,40 @@ leader_node() {
 		# n1 whether or not it led, and the J row (leader-local) was read elsewhere.
 		case "$(info "$n" O cluster)" in *Leader) printf '%s' "$n"; return;; esac
 	done
+}
+
+# One leader, the one the others follow: right after a restart with skv on, a
+# second node still called itself Leader for a while, leader_node() returned it
+# (the first in roster order), and every leader-local read - the J row, the
+# subject's state, --skv-approve - went to the wrong node (2026-10-11, run 3:
+# n3 challenged the subject, the test read elsewhere). Waits up to 60 s for a
+# single self-declared leader that a majority of the voters follow; prints the claims
+# while there are several.
+settled_leader() {
+	local i n line claim u8 named
+	for i in $(seq 1 30); do
+		claim=""; named=0
+		for n in "${NODES[@]}"; do
+			line="$(info "$n" O cluster)"
+			case "$line" in *Leader) claim="$claim $n";; esac
+		done
+		claim="${claim# }"
+		if [ -n "$claim" ] && [ "${claim// /}" = "$claim" ]; then
+			u8="$(node_uuid "$claim" | sed -E 's/^(..).*(......)$/\1..\2/')"
+			for n in "${NODES[@]}"; do
+				[ "$n" = "$claim" ] && continue
+				is_spare_node "$n" && continue
+				case "$(info "$n" O cluster)" in *"Leader: $u8"*) named=$((named + 1));; esac
+			done
+			# a majority of the voters, not all: a joiner held Unconfirmed names nobody
+			if [ $(( (named + 1) * 2 )) -gt $(( ${#NODES[@]} - ${#SPARE_NODES[@]} )) ]; then
+				printf '%s' "$claim"; return 0
+			fi
+		fi
+		[ "$i" = 1 ] || [ "$((i % 5))" = 0 ] && echo "  (leader not settled: claimed by [${claim:-nobody}], named by $named)" >&2
+		sleep 2
+	done
+	leader_node
 }
 
 # The J row as the leader holds it. Read on the leader specifically: the
@@ -77,8 +122,9 @@ for n in "${NODES[@]}"; do
 done
 restart_all
 await_cluster
-L="$(leader_node)"
+L="$(settled_leader)"
 [ -n "$L" ] || { bad "no leader; nothing below can be attributed"; summary; }
+pick_subject
 echo "  leader is $L, subject is $SUBJECT ($SUBJECT_UUID)"
 
 # ── 1. skv off: unchallenged, exactly as today ──────────────────────────────
@@ -111,8 +157,10 @@ for n in "${NODES[@]}"; do
 done
 restart_all
 await_cluster
-L="$(leader_node)"
+L="$(settled_leader)"
 [ -n "$L" ] || { bad "no leader after enabling skv"; summary; }
+pick_subject
+echo "  skv on: leader is $L, subject is $SUBJECT ($SUBJECT_UUID)"
 
 pause_subject
 cfg_write "$SUBJECT" node_run S "follow"
@@ -327,10 +375,11 @@ done
 check "the J row is gone once the approval was consumed" "" "$(j_row "$L")"
 
 # the record: written by the leader right after the consumption, as a cluster
-# transaction - so it can trail the admission by a moment
+# transaction - so it can trail the admission by a moment, more when its commit
+# meets the admission's own party change and is retried (2 s apart, ytserv 0.20.78)
 k_row() { q "$1" "select value from $YX_CFG where module='K' and name='$SUBJECT_UUID'"; }
 kv=""
-for _ in $(seq 1 10); do kv="$(k_row "$L")"; [ -n "$kv" ] && break; sleep 1; done
+for _ in $(seq 1 20); do kv="$(k_row "$L")"; [ -n "$kv" ] && break; sleep 1; done
 check "the leader recorded K <uuid> = the fingerprint the J row showed" "$fp_row" "$kv"
 fk="$(k_row "$F")"
 case "$fk" in
@@ -359,7 +408,7 @@ for n in "${NODES[@]}"; do
 done
 restart_all
 await_cluster
-L="$(leader_node)"
+L="$(settled_leader)"
 [ -n "$L" ] && ok "cluster restored with skv off" || bad "cluster did not settle after restore"
 
 summary

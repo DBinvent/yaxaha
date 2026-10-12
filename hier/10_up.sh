@@ -18,12 +18,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 
 rh "docker network inspect $YX_NET >/dev/null 2>&1 || docker network create $YX_NET >/dev/null"
 
+# YX_COV_MOUNT: a coverage run's volume for the instrumented ytserv's counts
+# (nightly/coverage.sh); unset otherwise.
 start_node() { # start_node <node>: a fresh container for it
 	local n="$1" u
 	u="$(node_uuid "$n")"
 	rh "docker rm -f $n >/dev/null 2>&1; true"
 	rh "docker run -d --name $n --hostname $n --network $YX_NET \
-		-e NODE_UUID=$u -e DB=$YX_DB -e CFG_TABLE=$YX_CFG \
+		-e NODE_UUID=$u -e DB=$YX_DB -e CFG_TABLE=$YX_CFG ${YX_COV_MOUNT:-} \
 		$YX_IMAGE >/dev/null"
 }
 echo "Starting ${#NODES[@]} nodes in ${#CLUSTERS[@]} clusters..."
