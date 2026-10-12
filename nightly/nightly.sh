@@ -34,12 +34,12 @@
 #    newest first by reading the list in reverse.
 # 7. nightly/badge.json is rewritten from it (nightly/badge.py) - the badge
 #    dbinvent.com shows, which shields.io reads from GitHub. NIGHTLY_PUSH=1
-#    commits the two files and pushes them, on main and only when no other
+#    commits the two files (and nightly/coverage.yaml) and pushes them, on main and only when no other
 #    commit is waiting to be pushed; otherwise they wait for a hand push.
 #
-# Coverage: a run that finds nightly/coverage.yaml missing measures it - so
-# renaming or deleting that file has the next night measure again, and with no
-# .rs change it runs for that alone (trigger: coverage; nothing bumped or
+# Coverage: a run that finds nightly/coverage.yaml missing, or listing fewer
+# suites than a whole run, measures it - so renaming or deleting that file has
+# the next night measure again, and with no .rs change it runs for that alone (trigger: coverage; nothing bumped or
 # published, there is nothing new to publish). Such a run builds an instrumented
 # ytserv and yxctl into a second package (nightly/coverage.sh) that every suite
 # installs in place of the plain one, runs the unit tests under cargo llvm-cov,
@@ -170,10 +170,15 @@ TRIGGER=changes
 # coverage: measured when its file is missing; a failed measurement of these same
 # sources is not tried again on its own
 COV_TRIED="$(cat "$STATE/coverage.tried.fp" 2>/dev/null)"
+cov_whole() { # coverage.yaml is there and measured every suite
+	local have s
+	have=" $(grep -m1 '^suites:' "$COVERAGE_FILE" 2>/dev/null | cut -d: -f2- | tr -d '[]",') "
+	for s in $ALL_SUITES; do case "$have" in *" $s "*) ;; *) return 1 ;; esac; done
+}
 if [ "$COVERAGE" = auto ]; then
-	# measured on its own only by a run of every suite: a partial one would write
-	# the file, and the whole measurement would never come
-	if [ -f "$COVERAGE_FILE" ] || [ "$NIGHTLY_SUITES" != "$ALL_SUITES" ]; then COVERAGE=0; else COVERAGE=1; fi
+	# measured on its own only by a run of every suite, and until one has: a
+	# partial measurement (--coverage --suites ...) stands in its file until then
+	if cov_whole || [ "$NIGHTLY_SUITES" != "$ALL_SUITES" ]; then COVERAGE=0; else COVERAGE=1; fi
 fi
 if [ -z "$CHANGED" ]; then
 	if [ "$FORCE" = 1 ]; then TRIGGER=forced
@@ -198,7 +203,7 @@ NEED_BUMP=0
 if [ "$TRIGGER" != coverage ] && [ -n "$PUB_V" ] && dpkg --compare-versions "$DEB_V" le "$PUB_V"; then NEED_BUMP=1; fi
 
 say "== nightly $(now): $TRIGGER - changed: ${CHANGED:-none} (watching: $WATCH)"
-say "   deb $DEB_V (published: ${PUB_V:-none}), ytserv $YTS_V; suites: $NIGHTLY_SUITES; publish: $NIGHTLY_PUBLISH; coverage: $( [ "$COVERAGE" = 1 ] && echo "measured$( [ -f "$COVERAGE_FILE" ] || echo " ($(basename "$COVERAGE_FILE") missing)")" || echo no)"
+say "   deb $DEB_V (published: ${PUB_V:-none}), ytserv $YTS_V; suites: $NIGHTLY_SUITES; publish: $NIGHTLY_PUBLISH; coverage: $( [ "$COVERAGE" = 1 ] && echo "measured$( [ -f "$COVERAGE_FILE" ] && { cov_whole || echo " (the last one was partial)"; } || echo " ($(basename "$COVERAGE_FILE") missing)")" || echo no)"
 if [ "$DRY" = 1 ]; then
 	[ "$NEED_BUMP" = 1 ] && say "   would bump the deb patch past $PUB_V$( [ "$(ytserv_fp)" != "$(cat "$STATE/published.ytserv.fp" 2>/dev/null)" ] && [ "$YTS_V" = "$(cat "$STATE/published.ytserv.version" 2>/dev/null)" ] && echo ", and ytserv's")"
 	say "   dry run: nothing built, run or published"; exit 0
@@ -547,7 +552,10 @@ if [ "${NIGHTLY_PUSH:-0}" = 1 ]; then
 	if [ "$(git -C "$TESTS" rev-parse --abbrev-ref HEAD)" != main ] \
 	   || [ -n "$(git -C "$TESTS" rev-list origin/main..HEAD 2>/dev/null)" ]; then
 		say "   badge not pushed: not on main, or unpushed commits wait there"
-	elif git -C "$TESTS" commit -q -m "nightly $RUN_ID: $RESULT" -- nightly/results.yaml nightly/badge.json \
+	elif PUSHED=(nightly/results.yaml nightly/badge.json) \
+	     && { [ ! -f "$COVERAGE_FILE" ] || PUSHED+=(nightly/coverage.yaml); } \
+	     && git -C "$TESTS" add -- "${PUSHED[@]}" \
+	     && git -C "$TESTS" commit -q -m "nightly $RUN_ID: $RESULT" -- "${PUSHED[@]}" \
 	     && git -C "$TESTS" push -q origin HEAD:main; then
 		say "   badge pushed"
 	else

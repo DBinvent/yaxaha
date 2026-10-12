@@ -55,9 +55,10 @@ changed; `--no-publish` tests only.
 
 ### Coverage
 
-A run that finds `nightly/coverage.yaml` missing also measures code coverage: the
-lines of yt-pgxt's Rust workspace that the unit tests and every end-to-end suite
-ran. Rename or delete the file and the next night measures again - with no `.rs`
+A run that finds `nightly/coverage.yaml` missing - or written by a run of fewer
+suites - also measures code coverage: the lines of yt-pgxt's Rust workspace that
+the unit tests and every end-to-end suite ran. Rename or delete the file and the
+next night measures again - with no `.rs`
 change it runs for that alone, and publishes nothing. `--coverage` measures in the
 run started by hand. [nightly/coverage.sh](nightly/coverage.sh) does the work:
 
@@ -69,7 +70,8 @@ run started by hand. [nightly/coverage.sh](nightly/coverage.sh) does the work:
 - the unit tests under `cargo llvm-cov`;
 - the report: `nightly/coverage.yaml` (total, per crate, per suite) and a
   `coverage:` percent in the run's results.yaml entry; per-file tables and HTML in
-  the run's logs.
+  the run's logs. ytserv's figure goes on the badge (`nightly/badge.json`), which
+  dbinvent.com's cluster downloads page shows.
 
 Needs `cargo-llvm-cov` and `rustup component add llvm-tools-preview` on the build host.
 

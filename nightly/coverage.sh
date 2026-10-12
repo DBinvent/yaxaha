@@ -24,7 +24,8 @@
 #   llvm-cov keeps one record per function, and a debug and a release build of
 #   the same function do not share counters. Written: <yaml> (totals, per crate,
 #   per suite - no paths or hosts, it is committed), <dir>/coverage.txt (every
-#   file), <dir>/combined.lcov, <dir>/unit-html and <dir>/e2e-html.
+#   file), <dir>/combined.lcov, <dir>/unit-html and <dir>/e2e-html; each suite's
+#   profiles merged in <dir>/e2e/<suite>.profdata, the raw ones deleted.
 #
 # Counted: yt-pgxt's own sources - not the registry crates, not the sibling
 # repositories ytserv builds from (rppd, rdbm, diff-doc-rs), not the generated
@@ -155,8 +156,9 @@ with open(f"{d}/combined.lcov", "w") as fh:
 out = ["# yaxaha code coverage: the lines of yt-pgxt's Rust workspace the nightly's tests ran -",
        "# the unit tests and every end-to-end suite, against an instrumented ytserv and yxctl",
        "# (nightly/coverage.sh says what counts). Written by a nightly run that measured it,",
-       "# and a run measures it when this file is MISSING: rename or delete it and the next",
-       "# nightly measures again, even with no code change (nightly/nightly.sh --coverage: now).",
+       "# and a run measures it when this file is MISSING, or lists fewer suites than a whole",
+       "# run: rename or delete it and the next nightly measures again, even with no code",
+       "# change (nightly/nightly.sh --coverage: now). ytserv's percent is the badge's.",
        f"run: {q(e.get('RUN_ID', ''))}",
        f"measured: {q(e.get('MEASURED', ''))}",
        f"version: {{deb: {q(e.get('DEB_V', ''))}, ytserv: {q(e.get('YTS_V', ''))}}}",
@@ -182,6 +184,10 @@ with open(e["YAML"], "w") as fh:
 print(f"  OK    coverage {p}% of {n} lines ({c} run)")
 print(f"coverage={p}")
 EOF
+	local rc=$?
+	# the raw profiles - 0.6 MB a process, 340 MB a run - are in the .profdata now
+	[ "$rc" -eq 0 ] && find "$dir/e2e" -name '*.profraw' -delete
+	return $rc
 }
 
 case "${1:-}" in

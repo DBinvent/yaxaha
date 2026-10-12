@@ -10,13 +10,14 @@ The badge is what dbinvent.com shows next to the release it announces:
 
     nightly 1.1.82 | 2,782 tests · all passed
     nightly 1.1.82 | 2,782 tests · 1 failed
-    nightly 1.1.82 | 2,782 tests · all passed · 71% coverage
+    nightly 1.1.82 | 2,782 tests · all passed · ytserv coverage 77%
 
 The label is the ytserv tested, the message the total and how it went - green
 only for a run whose every suite passed, red otherwise. A suite skipped for a
 missing outside service is named: it tested nothing, and a green badge should not
-hide that. Coverage is the newest run's `coverage:` percent, or else the last one
-measured (coverage.yaml): only a run that finds that file missing measures it.
+hide that. Coverage is ytserv's line coverage, unit and end-to-end tests together,
+from coverage.yaml - the last measurement: a run measures only when that file is
+missing (or lists fewer suites than a whole run), so most runs carry none of their own.
 
 Only the tail of results.yaml is read (TAIL lines): the file only grows, and the
 newest run is the last `- run` entry in it. An entry longer than TAIL is an error,
@@ -58,11 +59,12 @@ def newest_run(path: Path) -> dict:
     return yaml.safe_load("\n".join(lines[starts[-1]:]))[0]
 
 
-def last_coverage() -> float | None:
-    """The percent nightly.sh wrote to coverage.yaml when it last measured it."""
+def ytserv_coverage() -> float | None:
+    """ytserv's percent in coverage.yaml, as nightly.sh last measured it."""
     try:
-        return float(yaml.safe_load(COVERAGE.read_text())["lines"]["percent"])
-    except (OSError, yaml.YAMLError, KeyError, TypeError, ValueError):
+        crates = yaml.safe_load(COVERAGE.read_text())["crates"]
+        return next(float(c["percent"]) for c in crates if c.get("name") == "ytserv")
+    except (OSError, yaml.YAMLError, KeyError, TypeError, ValueError, StopIteration):
         return None
 
 
@@ -78,11 +80,9 @@ def badge(run: dict) -> dict:
     else:
         color = "red"
         parts.append(f"{failed:,} failed" if run.get("suites") else "build failed")
-    coverage = run.get("coverage")
-    if coverage is None:
-        coverage = last_coverage()
+    coverage = ytserv_coverage()
     if coverage is not None:
-        parts.append(f"{float(coverage):g}% coverage")
+        parts.append(f"ytserv coverage {coverage:.0f}%")
     return {"schemaVersion": 1, "label": f"nightly {version}", "message": " · ".join(parts),
             "color": color, "cacheSeconds": 3600}
 
