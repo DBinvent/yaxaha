@@ -84,6 +84,9 @@ else
 	# then the server-function stack (rppd -> etcd -> clickhouse, each needing
 	# the one before it to work), then MPP last - the layout, then the engine.
 	# 98 installs a 58MB wheel on every node, so it is genuinely the slowest.
+	# 32_schema_change.sh is held out (2026-10-12, the owner's call) until the TCP
+	# spare stops missing rows committed during a roll (its S7/S8 on n7); run it by
+	# hand meanwhile, on a running fixture: ../nightly/locked.sh ./run_a.sh 32_schema_change.sh
 	for t in 86_schema_block.sh 87_node_block.sh 89_recover.sh 23_split.sh \
 	         92_rppd.sh 93_etcd.sh 92c_rppd_cadence.sh 94_clickhouse.sh \
 	         97_mpp.sh 98_mpp_df.sh 98_skv_join.sh 29_concurrent.sh 99_peer_stream.sh 25_cross_db.sh; do

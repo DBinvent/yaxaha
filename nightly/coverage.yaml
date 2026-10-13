@@ -1,26 +1,30 @@
 # yaxaha code coverage: the lines of yt-pgxt's Rust workspace the nightly's tests ran -
 # the unit tests and every end-to-end suite, against an instrumented ytserv and yxctl
 # (nightly/coverage.sh says what counts). Written by a nightly run that measured it,
-# and a run measures it when this file is MISSING: rename or delete it and the next
-# nightly measures again, even with no code change (nightly/nightly.sh --coverage: now).
-run: "20261012-114834"
-measured: "2026-10-12T13:38:29Z"
-version: {deb: "0.18.82", ytserv: "1.1.82"}
+# and a run measures it when this file is MISSING, or lists fewer suites than a whole
+# run: rename or delete it and the next nightly measures again, even with no code
+# change (nightly/nightly.sh --coverage: now). ytserv's percent is the badge's.
+run: "20261013-050008"
+measured: "2026-10-13T07:58:08Z"
+version: {deb: "1.18.86", ytserv: "1.1.85"}
 source: "fc97e58+dirty"
 result: pass
-suites: ["unit", "topology", "hier", "lxc", "llm", "topo-membership"]
-lines: {total: 40274, covered: 26262, percent: 65.2}
+suites: ["unit", "topology", "hier", "lxc", "llm", "topo", "topo-faults", "topo-membership", "rmc"]
+lines: {total: 42130, covered: 28920, percent: 68.6}
 # percent of those lines each part ran: the unit tests, the suites together, each suite
 by:
-  "unit": 36.1
-  "e2e": 45.3
-  "hier": 23.7
-  "llm": 17.1
-  "lxc": 16.6
-  "topo-membership": 27.3
-  "topology": 34.6
+  "unit": 37.1
+  "e2e": 48.5
+  "hier": 22.7
+  "llm": 16.3
+  "lxc": 15.8
+  "rmc": 25.6
+  "topo-faults": 31.7
+  "topo-membership": 26.2
+  "topo": 31.9
+  "topology": 33.2
 crates:
-  - {name: "ytcluster-common", lines: 145, percent: 79.3, unit: 43.4, e2e: 50.3}
-  - {name: "ytcluster-types", lines: 1317, percent: 74.9, unit: 63.0, e2e: 33.9}
-  - {name: "ytserv", lines: 28718, percent: 77.4, unit: 42.5, e2e: 55.5}
+  - {name: "ytcluster-common", lines: 145, percent: 81.4, unit: 43.4, e2e: 52.4}
+  - {name: "ytcluster-types", lines: 1317, percent: 74.8, unit: 63.0, e2e: 34.2}
+  - {name: "ytserv", lines: 30574, percent: 81.4, unit: 43.5, e2e: 59.3}
   - {name: "yxctl", lines: 10094, percent: 29.0, unit: 14.3, e2e: 17.5}
