@@ -26,10 +26,15 @@
 #   7. writing `ok` by hand admits nothing -- the arming is the decision
 #   8. the pending row is swept past skv_approve_ttl_sec
 #   8b. the approved key is recorded as a module-K row, leader-only (CFGLC)
-#   9. Protocol C: `yxctl --skv-approve` on the leader, under the fixture's
-#      SECRET, admits the subject - the J row goes, `K <uuid>` carries the
-#      fingerprint the row showed, a follower cannot rewrite it - and the same
-#      call under another SECRET arms nothing
+#   9. the approval as SQL (ytserv skv.md "Approval"): on a follower `yxctl
+#      --skv-approve` is refused, a value someone typed is refused by the trigger,
+#      and `select yt_approve('<uuid>')` on the leader admits the subject - the J
+#      row goes, `K <uuid>` carries the fingerprint the row showed, a follower
+#      cannot rewrite it
+#  11. a restart of a member whose key was approved comes back through the gate,
+#      re-admitted by the proof of that key - no operator
+#  12. a leader change keeps an approval: approved on one leader, admitted by the
+#      next, which took the replicated J row over
 #
 # And 3b, which is §2.2 rather than §6: the pending row names the PUBLIC KEY the
 # operator is being asked to approve. Genesis wraps the master key under
@@ -109,6 +114,31 @@ settled_leader() {
 # challenge lives in the leader's memory, so its row is the authoritative one.
 j_row() { q "$1" "select value from $YX_CFG where module='J' and name='$SUBJECT_UUID'"; }
 
+# Approve on the leader every pending join but the subject's: a voter that missed
+# the synchronised cold start after skv went on climbs back through register and
+# is held Unconfirmed like any joiner - sent nothing, and not counted in a quorum.
+approve_others() {
+	local u
+	for _ in $(seq 1 15); do
+		local left=0
+		for u in $(q "$L" "select name from $YX_CFG where module='J' and value like 'pending:%' and name <> '$SUBJECT_UUID'"); do
+			q "$L" "select yt_approve('$u')" >/dev/null 2>&1
+			left=1
+		done
+		[ "$left" = 0 ] && return 0
+		sleep 4
+	done
+}
+# A voter the leader counts as Good, neither the leader nor the subject
+good_follower() {
+	local n
+	for n in "${NODES[@]}"; do
+		[ "$n" = "$L" ] || [ "$n" = "$SUBJECT" ] || is_spare_node "$n" && continue
+		case "$(info "$L" E "$(node_uuid "$n")")" in *Good*) echo "$n"; return 0 ;; esac
+	done
+	return 1
+}
+
 pause_subject() {
 	cfg_write "$SUBJECT" node_run "S" "pause"
 	sleep 12
@@ -118,7 +148,7 @@ pause_subject() {
 for n in "${NODES[@]}"; do
 	cfg_delete "$n" skv C
 	cfg_delete "$n" skv_approve_ttl_sec C
-	q "$n" "delete from $YX_CFG where module='J'" >/dev/null
+	cfg_tx "$n" "J rows" "delete from $YX_CFG where module='J';"
 done
 restart_all
 await_cluster
@@ -161,6 +191,7 @@ L="$(settled_leader)"
 [ -n "$L" ] || { bad "no leader after enabling skv"; summary; }
 pick_subject
 echo "  skv on: leader is $L, subject is $SUBJECT ($SUBJECT_UUID)"
+approve_others
 
 pause_subject
 cfg_write "$SUBJECT" node_run S "follow"
@@ -233,7 +264,7 @@ esac
 # CFGLC, enforced by cluster.rs. Asserted on a follower, where the J row exists
 # only if the config table is synced; if it is not, the row is absent and the
 # update affects nothing, which is the same refusal by a different route.
-F=n1; [ "$F" = "$L" ] && F=n2
+F="$(good_follower)" || F=n1
 out="$(q "$F" "update $YX_CFG set value='ok' where module='J' and name='$SUBJECT_UUID';" 2>&1)"
 fr="$(j_row "$F")"
 case "$fr" in
@@ -264,9 +295,9 @@ esac
 # skv_approve_ttl_sec is 180 above (not timed here), and the sweep rides the 5 s
 # monitor tick.
 # Clear the forged value first so what is being timed is a real pending row.
-q "$L" "alter table $YX_CFG disable trigger user;
-        delete from $YX_CFG where module='J';
-        alter table $YX_CFG enable trigger user;" >/dev/null
+# On every node, triggers off: the J rows replicate now, and a row left on a
+# follower would sit beside the leader's next one.
+for n in "${NODES[@]}"; do cfg_tx "$n" "J rows" "delete from $YX_CFG where module='J';"; done
 cfg_write "$SUBJECT" node_run S "follow"
 sleep 15
 [ -n "$(j_row "$L")" ] && ok "a fresh pending row was written" \
@@ -293,26 +324,25 @@ case "$after_k" in
 	*) ok "a follower cannot rewrite an approved key" ;;
 esac
 
-# ── 9. Protocol C: the operator approves on the leader ──────────────────────
+# ── 9. the approval as SQL: the operator approves on the leader ─────────────
 #
-# Everything above shows the gate holds. This is the door it opens:
-# `yxctl --skv-approve <uuid>` on the LEADER's host reads the J row, MACs
-# challenge || uuid || fingerprint under the app key, and sends it over ytserv's
-# unix socket; the leader verifies it with ITS app key over ITS entry and arms
-# it, yxctl writes `ok` (the yt_join_gate trigger lets it through now), and the
-# subject's next ask is admitted. The app key is the fixture's SECRET, given to
-# every container by 10_up.sh - a container made before that has none, and the
-# leader says so ("no app key").
+# Everything above shows the gate holds. This is the door it opens: on the leader
+# `select yt_approve('<uuid>')` has ytserv sign the approval of the entry it holds
+# (`yt_info('J!:<uuid>')`, `ok:<kid>:<challenge>:<expires>:<mac>:<fingerprint>` -
+# nothing secret, the key stays in ytserv's memory) and writes it into the J row;
+# the yt_join_gate trigger hands it to the leader (`yt_info('J=:..')`), which
+# arms the entry, and the subject's next ask is admitted. `yxctl --skv-approve`
+# runs the same SQL. No SECRET: the app key is a node's own.
 #
-# The negative first, while the entry is still pending: the same call under
-# another SECRET must arm nothing.
-approve() { # approve <node> <secret> -> yxctl's output; its exit status
-	local node="$1" secret="$2"
+# The negatives first, while the entry is still pending: yxctl on a follower,
+# and a value someone typed, arm nothing.
+approve() { # approve <node> -> yxctl's output; its exit status
+	local node="$1"
 	local cmd="yxctl --skv-approve $SUBJECT_UUID --yes -U postgres -d $YX_DB -t $YX_CFG"
 	if [ "$YX_HOST" = "local" ]; then
-		docker exec -u postgres -e SECRET="$secret" "$node" $cmd 2>&1
+		docker exec -u postgres "$node" $cmd 2>&1
 	else
-		"${YX_SSH[@]}" "$YX_HOST" "docker exec -u postgres -e SECRET='$secret' $node $cmd" 2>&1
+		"${YX_SSH[@]}" "$YX_HOST" "docker exec -u postgres $node $cmd" 2>&1
 	fi
 }
 # The J row once it has time left to be approved in: the leader's own clock, and
@@ -341,37 +371,57 @@ case "$fp_row" in
 	SHA256:?*) ok "the subject offered its node key: the row names $fp_row, not '-'" ;;
 	*) bad "the pending row's fingerprint is [$fp_row] - the subject offered no node key" ;;
 esac
+case "$(j_row "$F")" in
+	"$row") ok "the pending row reached a follower ($F): a next leader holds it" ;;
+	*) bad "$F holds J [$(j_row "$F")], not the leader's pending row" ;;
+esac
 
-out="$(approve "$L" "not-the-fixture-secret")" && rc=0 || rc=$?
+out="$(approve "$F")" && rc=0 || rc=$?
 case "$rc:$out" in
-	0:*) bad "an approval under another SECRET was ACCEPTED - [$out]" ;;
-	*"wrong MAC"*) ok "an approval under another SECRET is refused: wrong MAC" ;;
-	*) bad "an approval under another SECRET failed, but not on its MAC (rc $rc) - [$out]" ;;
+	0:*) bad "an approval on a follower was ACCEPTED - [$out]" ;;
+	*"not the leader"*) ok "yxctl --skv-approve on a follower is refused: not the leader" ;;
+	*) bad "yxctl --skv-approve on a follower failed, but not as 'not the leader' (rc $rc) - [$out]" ;;
+esac
+# a value someone typed: the leader's own signature with one bit of it changed
+signed="$(info "$L" "J!:$SUBJECT_UUID" "$SUBJECT_UUID")"
+case "$signed" in
+	ok:*) ok "yt_info('J!:<uuid>') on the leader signs the approval ($(printf '%s' "$signed" | cut -d: -f2))" ;;
+	*) bad "yt_info('J!:<uuid>') on the leader did not sign - [$signed]" ;;
+esac
+mac="$(printf '%s' "$signed" | cut -d: -f5)"
+case "${mac:0:1}" in A) m2="B${mac:1}" ;; *) m2="A${mac:1}" ;; esac
+typed="$(printf '%s' "$signed" | awk -F: -v m="$m2" 'BEGIN{OFS=":"} {$5=m; print}')"
+err="$(qe "$L" "update $YX_CFG set value='$typed' where module='J' and name='$SUBJECT_UUID';")"
+case "$err" in
+	*"does not verify"*) ok "a typed approval is refused by the trigger: it does not verify" ;;
+	*) bad "a typed approval was not refused as unverified - [$err]" ;;
 esac
 gate="$(info "$L" "J:$SUBJECT_UUID" "$SUBJECT_UUID")"
 case "$gate" in
-	*'"ok":false'*) ok "a wrong MAC arms nothing: yt_info('J:<uuid>') still refuses" ;;
-	*) bad "after a wrong MAC yt_info('J:<uuid>') says [$gate]" ;;
+	*'"ok":false'*) ok "nothing armed: yt_info('J:<uuid>') still refuses" ;;
+	*) bad "after the refusals yt_info('J:<uuid>') says [$gate]" ;;
 esac
-check "a wrong MAC leaves the J row as it was" "$row" "$(j_row "$L")"
+check "the refusals leave the J row as it was" "$row" "$(j_row "$L")"
 sleep 12
 case "$(info "$L" E "$SUBJECT_UUID")" in
-	*Good*|*Leader*) bad "the subject was admitted after an approval with a wrong MAC" ;;
-	*) ok "the subject is still held after an approval with a wrong MAC" ;;
+	*Good*|*Leader*) bad "the subject was admitted after refused approvals" ;;
+	*) ok "the subject is still held after the refused approvals" ;;
 esac
 
-out="$(approve "$L" "$YX_SECRET")" && rc=0 || rc=$?
-case "$rc:$out" in
-	0:*"Approved"*) ok "yxctl --skv-approve on the leader armed the join" ;;
-	*) bad "yxctl --skv-approve on the leader failed (rc $rc) - [$out]" ;;
+out="$(q "$L" "select yt_approve('$SUBJECT_UUID')" 2>&1)"
+case "$out" in
+	ok:*) ok "select yt_approve('<uuid>') on the leader recorded the approval" ;;
+	*) bad "yt_approve on the leader failed - [$out]" ;;
 esac
+# approved, it may first be told to catch up as a Spare (the age check), then is
+# granted at a later ask
 admitted=""
-for _ in $(seq 1 15); do
+for _ in $(seq 1 60); do
 	case "$(info "$L" E "$SUBJECT_UUID")" in *Good*|*Leader*) admitted=1; break ;; esac
 	sleep 2
 done
-[ -n "$admitted" ] && ok "the approved subject reached Follower within 30 s" \
-	|| bad "the subject is not a Follower 30 s after the approval - [$(info "$L" E "$SUBJECT_UUID")]"
+[ -n "$admitted" ] && ok "the approved subject reached Follower within 120 s" \
+	|| bad "the subject is not a Follower 120 s after the approval - [$(info "$L" E "$SUBJECT_UUID")]"
 check "the J row is gone once the approval was consumed" "" "$(j_row "$L")"
 
 # the record: written by the leader right after the consumption, as a cluster
@@ -393,6 +443,95 @@ q "$F" "update $YX_CFG set value='SHA256:forged' where module='K' and name='$SUB
 check "a follower cannot rewrite the approved key (on $F)" "$fk" "$(k_row "$F")"
 check "a follower's rewrite does not reach the leader either" "$fp_row" "$(k_row "$L")"
 
+# ── 11. a restart comes back through the gate, by its proof ─────────────────
+#
+# The subject's key is approved now (its K row). With skv on, a member whose key
+# was approved comes back into a live term through register: it stays Spare, asks
+# to follow, and the leader re-admits it by the proof of that key - no operator
+# (ytserv skv_join.rs skv_restart_gated / skv_rearm_by_proof). Before, a restart
+# promoted itself and the gate never saw it.
+rh "docker restart $SUBJECT >/dev/null"
+# its own log first: the leader's view of it stays Good until its pings fail
+asked=""
+for _ in $(seq 1 45); do
+	c="$(rh "docker logs --since 3m $SUBJECT 2>&1 | grep -c 'asking to follow - re-admitted' || true" | tail -1)"
+	[ "${c:-0}" -gt 0 ] && { asked=1; break; }
+	sleep 2
+done
+[ -n "$asked" ] && ok "11 the restarted subject came back by asking to follow, not by itself" \
+	|| bad "11 the subject never logged asking to follow in 90 s - its restart bypassed the gate"
+back=""
+for _ in $(seq 1 45); do
+	c="$(rh "docker logs --since 3m $L 2>&1 | grep -c 're-admitted by its proof' || true" | tail -1)"
+	case "$c:$(info "$L" E "$SUBJECT_UUID")" in [1-9]*Good*|[1-9]*Leader*) back=1; break ;; esac
+	sleep 2
+done
+[ -n "$back" ] && ok "11 ...re-admitted by the proof of its approved key, a Follower again - no operator" \
+	|| bad "11 no re-admission by proof in 90 s - [$(info "$L" E "$SUBJECT_UUID")]"
+
+# ── 12. a leader change keeps an approval ───────────────────────────────────
+#
+# Its K row gone, the subject is a joiner again: held, a pending row written and
+# replicated. Off the network (its process and memory kept), approved on this
+# leader with yt_approve, the leadership moved, back on the network: the next
+# leader took the approval over from the replicated J row and admits it - no
+# second approval.
+for n in "${NODES[@]}"; do cfg_delete "$n" "$SUBJECT_UUID" K; done
+pause_subject
+cfg_write "$SUBJECT" node_run S "follow"
+row=""
+for _ in $(seq 1 30); do row="$(j_row "$L")"; case "$row" in pending:*) break ;; esac; sleep 2; done
+case "$row" in
+	pending:*) ok "12 the subject is a joiner again: a pending row" ;;
+	*) bad "12 no pending row for the subject - [$row]" ;;
+esac
+approve_others
+node_down "$SUBJECT"
+exp_old="$(j_row "$L" | cut -d: -f3)"
+out="$(q "$L" "select yt_approve('$SUBJECT_UUID')" 2>&1)"
+case "$out" in ok:*) ok "12 approved on the leader $L" ;; *) bad "12 yt_approve on $L failed - [$out]" ;; esac
+OLD_L="$L"
+# the next leader: any other voter that takes it (a promote is refused to a node
+# that judges itself behind - election.rs promote_refusal)
+for NL in $(printf '%s\n' "${NODES[@]}"); do
+	[ "$NL" = "$OLD_L" ] || [ "$NL" = "$SUBJECT" ] || is_spare_node "$NL" && continue
+	case "$(info "$OLD_L" E "$(node_uuid "$NL")")" in *Good*) ;; *) continue ;; esac
+	case "$(j_row "$NL")" in
+		ok:*) ok "12 the approval reached $NL" ;;
+		*) bad "12 $NL holds J [$(j_row "$NL")], not the approval" ;;
+	esac
+	NIP="$(rh "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $NL")"
+	echo "  force-election to $NL ($NIP): $(qe "$OLD_L" "select yt_info('e:$NIP:$YX_PORT')" | cut -c1-200)"
+	for _ in $(seq 1 20); do [ "$(settled_leader)" = "$NL" ] && break; sleep 2; done
+	[ "$(settled_leader)" = "$NL" ] && break
+done
+L="$(settled_leader)"
+[ -n "$L" ] && [ "$L" != "$OLD_L" ] && ok "12 the leadership moved from $OLD_L to $L" \
+	|| bad "12 the leadership did not move from $OLD_L - [$L]"
+c="$(rh "docker logs --since 5m $L 2>&1 | grep -c 'took over the J rows' || true" | tail -1)"
+[ "${c:-0}" -gt 0 ] && ok "12 the new leader $L took the J rows over" || bad "12 $L never logged taking the J rows over"
+# This fixture runs without the secret store: the approval was signed with
+# $OLD_L's own process key (`ok:local:..`), which no other node holds. The next
+# leader keeps the entry - the same challenge and expiry, so the joiner is not
+# challenged again - and the approval is given again under it. With a master key
+# (`ok:mk<v>:..`) the approval itself carries over (skv.md "Approval").
+kid="$(j_row "$L" | cut -d: -f2)"
+pending_new="$(info "$L" J "$SUBJECT_UUID")"
+case "$kid:$pending_new" in
+	local:*"expires $exp_old "*) ok "12 $L holds the subject's entry with its challenge, not armed: a local approval is given again" ;;
+	*) bad "12 after the move: kid [$kid], $L's entry [$pending_new], expires before [$exp_old]" ;;
+esac
+node_up "$SUBJECT"
+out="$(q "$L" "select yt_approve('$SUBJECT_UUID')" 2>&1)"
+case "$out" in ok:local:*) ok "12 approved again under $L" ;; *) bad "12 yt_approve on $L failed - [$out]" ;; esac
+admitted=""
+for _ in $(seq 1 30); do
+	case "$(info "$L" E "$SUBJECT_UUID")" in *Good*|*Leader*) admitted=1; break ;; esac
+	sleep 2
+done
+[ -n "$admitted" ] && ok "12 the new leader $L admitted the subject, its challenge unchanged" \
+	|| bad "12 the subject is not a Follower under $L 60 s after its return - [$(info "$L" E "$SUBJECT_UUID")]"
+
 # ── 10. restore ─────────────────────────────────────────────────────────────
 #
 # skv OFF again, so a later test in the run does not inherit a cluster that
@@ -401,7 +540,7 @@ for n in "${NODES[@]}"; do
 	cfg_delete "$n" skv C
 	cfg_delete "$n" skv_approve_ttl_sec C
 	cfg_delete "$n" node_run S
-	q "$n" "delete from $YX_CFG where module='J'" >/dev/null
+	cfg_tx "$n" "J rows" "delete from $YX_CFG where module='J';"
 	# the subject's approved key: a K row named by a uuid is leader-only, so it
 	# goes with the sync trigger off, on every node - like cfg_delete
 	cfg_delete "$n" "$SUBJECT_UUID" K

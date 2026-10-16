@@ -70,8 +70,8 @@ run started by hand. [nightly/coverage.sh](nightly/coverage.sh) does the work:
 - the unit tests under `cargo llvm-cov`;
 - the report: `nightly/coverage.yaml` (total, per crate, per suite) and a
   `coverage:` percent in the run's results.yaml entry; per-file tables and HTML in
-  the run's logs. ytserv's figure goes on the badge (`nightly/badge.json`), which
-  dbinvent.com's cluster downloads page shows.
+  the run's logs. ytserv's figure goes on the badge (`nightly/badge.py`, served as
+  https://apt.dbinvent.com/paks/nightly/badge.svg), which dbinvent.com shows.
 
 Needs `cargo-llvm-cov` and `rustup component add llvm-tools-preview` on the build host.
 
@@ -149,6 +149,8 @@ Install the YaXAHA Cluster package:
 ```shell
 sudo apt update && sudo apt install yaxaha
 ```
+
+The package is dual-licensed: see [License](#license).
 
 Then run ytsetup to install the PostgreSQL extension and finally enable YaXAHA Cluster.
 
@@ -356,3 +358,18 @@ a new package:
 ./docker.sh                      # rebuilds; the layers before apt are cached
 APT_HOST=<host> ./docker.sh      # another apt repo; APT_HOST_IP=<address> if DNS doesn't know it
 ```
+
+## License
+
+The suites install and test the `yaxaha` deb package from apt.dbinvent.com; the
+nightly also publishes it as an EL9 rpm. The package is dual-licensed:
+
+1. **Free for noncommercial use**, under the
+   [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0).
+2. **A paid commercial license** from DBinvent LLC for commercial use, on the
+   DBinvent Commercial License terms.
+
+Both texts ship in the package, in `/usr/share/doc/yaxaha/`: `LICENSE` states
+the dual license and holds the commercial terms, and
+`PolyForm-Noncommercial-1.0.0.md` is the noncommercial license. See also
+[Licensing](https://www.dbinvent.com/cluster/guide/licensing) on dbinvent.com.

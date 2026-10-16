@@ -98,6 +98,8 @@ check "K3 the canary is ok" "ok" "$(info "$L" J canary)"
 want="$(x_rows "$L")"
 for _ in $(seq 1 15); do d=""; for n in "${NODES[@]}"; do [ "$(x_rows "$n")" = "$want" ] || d="$d $n"; done; [ -z "$d" ] && break; sleep 2; done
 [ -z "$d" ] && ok "K3 every node has the same $want X rows" || bad "K3 the X rows did not reach:$d"
+# the follower re-reads its store on its own tick once the rows arrived
+for _ in $(seq 1 10); do case "$(mk_of "$F")" in *"v1 is not held"*) break;; esac; sleep 2; done
 case "$(mk_of "$F")" in *"v1 is not held"*"@wrap/1/"*) ok "K3 the follower $F says v1 is not held, and why: $(mk_of "$F")" ;;
 	*) bad "K3 the follower's answer is not 'v1 is not held': $(mk_of "$F")" ;; esac
 

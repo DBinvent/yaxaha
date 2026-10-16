@@ -109,7 +109,14 @@ skv_setup() {
 		for n in "${NODES[@]}"; do case "$(mk_of "$n")" in "none - "*|"v"*) ;; *) seen="$seen $n";; esac; done
 		[ -z "$seen" ] && break; sleep 2
 	done
-	case "$(yx "$L" --skv-genesis)" in *"master key v1 made"*|*"already at master key v1"*) ;; *) return 1 ;; esac
+	# the leader's store comes on with the pushed rows: genesis until it answers
+	local g="" i
+	for i in $(seq 1 20); do
+		g="$(yx "$L" --skv-genesis)"
+		case "$g" in *"master key v1 made"*|*"already at master key v1"*) break ;; esac
+		sleep 3
+	done
+	case "$g" in *"master key v1 made"*|*"already at master key v1"*) ;; *) echo "  genesis: $(echo "$g" | tail -1)"; return 1 ;; esac
 	approve_until_held 1
 }
 

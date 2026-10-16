@@ -35,9 +35,12 @@ rh "docker run -d --name gitsrv --hostname gitsrv --network $YX_NET \
 	-e DEPLOY_PUBKEY='$PUB' $IMG >/dev/null"
 
 echo "  waiting for sshd..."
+# The entrypoint seeds fn.git, then sql.git, then prints this line and starts sshd.
+# Waiting for fn.git alone read the listing while sql.git was still being seeded
+# (nightly 20261015: "got [fn.git]").
 for _ in $(seq 1 30); do
-	out="$(rh "docker exec gitsrv sh -c 'ls /srv/git 2>/dev/null'" || true)"
-	case "$out" in *fn.git*) break;; esac
+	out="$(rh "docker logs gitsrv 2>&1" || true)"
+	case "$out" in *"[gitsrv] repositories:"*) break;; esac
 	sleep 1
 done
 check "the fixture repositories exist" "fn.git sql.git" \

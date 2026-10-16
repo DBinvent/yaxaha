@@ -59,6 +59,11 @@
 #      empty; appdb's yt_config holds nothing but A rows (the cluster ran without
 #      any C/N/Z row there).
 #   6  after a restart of ytserv on every node, 1-4 again with fresh ids.
+#   7  [dbreg] yt_info('U'): postgres the catalog, appdb a participant, a database
+#      without the extension skipped and never pooled (B10); a database whose
+#      extension comes at runtime participates within seconds and replicates, no
+#      restart; skipped by `databases = *, -app2` (written locally) it is let go
+#      of, can be dropped (B9), and leaves the list.
 #
 # ## Gaps this found, fixed in ytserv 0.20.57
 #
@@ -679,5 +684,77 @@ check_up "6/1"
 check_replication "6/2" 2
 check_routing "6/3" 3 east
 check_rppd "6/4" 2
+
+# ── 7 ───────────────────────────────────────────────────────────────────────
+# [dbreg] The registry (yt-pgxt combined-config.md, phase 1): which databases each
+# node replicates for, found at runtime, and let go of.
+echo "-- 7: the databases ytserv replicates for"
+APP2="${XDB_APP2:-app2}"
+PLAIN="${XDB_PLAIN:-plaindb}"
+u_line() { info "$1" U "$2" || true; }   # <node> <db>: its yt_info('U') line
+# <tag> <node> <db> <pattern> [seconds]: wait for its U line to match
+u_wait() {
+	local tag="$1" n="$2" db="$3" pat="$4" t="${5:-60}" i v=""
+	for i in $(seq 1 "$t"); do
+		v="$(u_line "$n" "$db")"
+		[[ "$v" == $pat ]] && { ok "$tag: $n: $db is ${v:0:90}"; return 0; }
+		sleep 1
+	done
+	bad "$tag: $n: $db is [${v:-not listed}], wanted [$pat]"
+}
+for n in "${NODES[@]}"; do
+	[ "$(pq "$n" "select count(*) from pg_database where datname='$PLAIN'")" = "1" ] \
+		|| pq "$n" "create database $PLAIN" >/dev/null
+done
+for n in "${NODES[@]}"; do
+	u_wait "7a" "$n" postgres "participant *source=catalog*"
+	u_wait "7a" "$n" "$APPDB" "participant *A=3 source=auto*"
+	u_wait "7a" "$n" "$PLAIN" "skipped: no extension"
+	check "7a: $n holds no connection to $PLAIN (B10: probed, not pooled)" "0" \
+		"$(pq "$n" "select count(*) from pg_stat_activity where datname='$PLAIN'")"
+done
+
+# a database whose extension comes at runtime: one transaction, so the A row is
+# there when the extension's announce makes ytserv look
+for n in "${NODES[@]}"; do
+	[ "$(pq "$n" "select count(*) from pg_database where datname='$APP2'")" = "1" ] \
+		|| pq "$n" "create database $APP2" >/dev/null
+	q "$n" "begin;
+	        create extension if not exists yaxaha;
+	        create table if not exists cx2_t (id bigint primary key, v text);
+	        create trigger zytsync_public_cx2_t_trigger after insert or update or delete on cx2_t
+	          for each row execute procedure yt_synchronize();
+	        insert into public.yt_config (name, module, value) values ('public.cx2_t', 'A', '');
+	        commit;" "$APP2" >/dev/null
+done
+for n in "${NODES[@]}"; do
+	u_wait "7b" "$n" "$APP2" "participant *A=1 source=auto*" 45
+	check "7b: $n holds cx2_t's config under $APP2, no restart" "A.$APP2.public.cx2_t" \
+		"$(info "$n" "a:$APP2.public.cx2_t" table || true)"
+done
+q "$W" "begin; insert into cx2_t values (1, 'runtime'); select yt_complete(true); commit;" "$APP2" >/dev/null
+sleep 3
+for n in "${NODES[@]}"; do
+	check "7b: $APP2.cx2_t's write from $W is on $n" "1" "$(q "$n" "select count(*) from cx2_t where id = 1" "$APP2")"
+done
+
+# skipped by the list, written locally on every node's unsynced catalog: let go
+# of without a restart - and then it can be dropped (B9)
+for n in "${NODES[@]}"; do cfg_write "$n" databases C "*, -$APP2"; done
+for n in "${NODES[@]}"; do
+	u_wait "7c" "$n" "$APP2" "skipped: -skip in databases" 45
+	check "7c: $n forgot cx2_t's config" "" "$(info "$n" "a:$APP2.public.cx2_t" table || true)"
+done
+for n in "${NODES[@]}"; do
+	pq "$n" "drop database $APP2" >/dev/null 2>&1
+	check "7c: $APP2 dropped on $n (ytserv holds no connection to it)" "0" \
+		"$(pq "$n" "select count(*) from pg_database where datname='$APP2'")"
+done
+for n in "${NODES[@]}"; do
+	for _ in $(seq 1 45); do [ -z "$(u_line "$n" "$APP2")" ] && break; sleep 1; done
+	check "7c: $n no longer lists $APP2" "" "$(u_line "$n" "$APP2")"
+	cfg_delete "$n" databases C
+	pq "$n" "drop database if exists $PLAIN" >/dev/null 2>&1
+done
 
 summary

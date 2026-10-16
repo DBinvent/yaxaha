@@ -103,3 +103,51 @@
   coverage: 68.6
   published: {deb: "1.18.86", rpm: "1.18.86"}
   note: "coverage 68.6% of yt-pgxt's lines (nightly/coverage.yaml)"
+- run: "20261014-050007"
+  started: "2026-10-14T05:00:07Z"
+  finished: "2026-10-14T08:30:56Z"
+  minutes: 211
+  trigger: changes
+  changed: ["etcd", "yt-pgxt"]
+  sources: {"etcd": "49244a4+dirty", "infra_apt": "a74ff16+dirty", "yaxaha_dist": "d987e51+dirty", "yt-pgxt": "fc97e58+dirty"}
+  version: {deb: "1.18.92", ytserv: "1.1.86", bumped: false}
+  steps:
+    - {name: build, result: pass, minutes: 6}
+  suites:
+    - {name: "unit", passed: 551, failed: 0, minutes: 3, result: pass}
+    - {name: "topology", passed: 643, failed: 0, minutes: 87, result: pass}
+    - {name: "hier", passed: 66, failed: 0, minutes: 6, result: pass}
+    - {name: "lxc", passed: 75, failed: 0, minutes: 2, result: pass}
+    - {name: "llm", passed: 101, failed: 0, minutes: 9, result: pass}
+    - {name: "topo", passed: 343, failed: 0, minutes: 28, result: pass}
+    - {name: "topo-faults", passed: 161, failed: 0, minutes: 11, result: pass}
+    - {name: "topo-membership", passed: 88, failed: 0, minutes: 6, result: pass}
+    - {name: "rmc", passed: 858, failed: 21, minutes: 54, result: fail}
+  totals: {passed: 2886, failed: 21}
+  result: fail
+  published: null
+  note: "not published: a suite failed"
+- run: "20261015-050004"
+  started: "2026-10-15T05:00:04Z"
+  finished: "2026-10-15T08:13:52Z"
+  minutes: 194
+  trigger: changes
+  changed: ["yt-pgxt"]
+  sources: {"etcd": "49244a4+dirty", "infra_apt": "a74ff16+dirty", "yaxaha_dist": "d987e51+dirty", "yt-pgxt": "fc97e58+dirty"}
+  version: {deb: "1.18.99", ytserv: "1.1.94", bumped: false}
+  steps:
+    - {name: build, result: pass, minutes: 4}
+  suites:
+    - {name: "unit", passed: 555, failed: 0, minutes: 5, result: pass}
+    - {name: "topology", passed: 688, failed: 1, minutes: 87, result: fail}
+    - {name: "hier", passed: 66, failed: 0, minutes: 6, result: pass}
+    - {name: "lxc", passed: 75, failed: 0, minutes: 2, result: pass}
+    - {name: "llm", passed: 101, failed: 0, minutes: 8, result: pass}
+    - {name: "topo", passed: 343, failed: 0, minutes: 27, result: pass}
+    - {name: "topo-faults", passed: 156, failed: 5, minutes: 18, result: fail}
+    - {name: "topo-membership", passed: 87, failed: 0, minutes: 9, result: pass}
+    - {name: "rmc", passed: 879, failed: 0, minutes: 28, result: pass}
+  totals: {passed: 2950, failed: 6}
+  result: fail
+  published: null
+  note: "not published: a suite failed"

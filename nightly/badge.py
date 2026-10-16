@@ -1,42 +1,59 @@
 #!/usr/bin/env python3
-"""Write nightly/badge.json - the newest nightly run as a shields.io endpoint badge.
+"""Render the newest nightly run as a badge image, served from the apt host.
 
-    nightly/badge.py              # results.yaml next to this file -> badge.json
-    nightly/badge.py --print      # print the badge, write nothing
+    nightly/badge.py                    # results.yaml next to this file -> nightly/badge.svg
+    nightly/badge.py --out PATH         # write the image there (nightly.sh: REPO_DIR/paks/nightly/badge.svg)
+    nightly/badge.py --print            # print the badge and the shields.io URL, fetch nothing
 
 The badge is what dbinvent.com shows next to the release it announces:
 
-    https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDBinvent%2Fyaxaha%2Fmain%2Fnightly%2Fbadge.json
+    https://apt.dbinvent.com/paks/nightly/badge.svg
 
     nightly 1.1.82 | 2,782 tests · all passed
     nightly 1.1.82 | 2,782 tests · 1 failed
     nightly 1.1.82 | 2,782 tests · all passed · ytserv coverage 77%
 
-The label is the ytserv tested, the message the total and how it went - green
-only for a run whose every suite passed, red otherwise. A suite skipped for a
-missing outside service is named: it tested nothing, and a green badge should not
-hide that. Coverage is ytserv's line coverage, unit and end-to-end tests together,
+The badge is the newest promotion: the newest run that published its package
+(`published:` set in results.yaml). A run that failed, or passed and published
+nothing (a coverage run, --no-publish), leaves the badge as it is - it vouches for
+what can be installed, and nightly.sh renews it only after a run that published.
+
+The label is the ytserv tested, the message the total and how it went. A promoted
+run passed every suite, so it is green; red is only for an entry that says
+published but failed, which nightly.sh never writes. A suite skipped for a missing
+outside service is named: it tested nothing, and a green badge should not hide
+that. Coverage is ytserv's line coverage, unit and end-to-end tests together,
 from coverage.yaml - the last measurement: a run measures only when that file is
 missing (or lists fewer suites than a whole run), so most runs carry none of their own.
 
-Only the tail of results.yaml is read (TAIL lines): the file only grows, and the
-newest run is the last `- run` entry in it. An entry longer than TAIL is an error,
-not a guess - raise TAIL.
+The image is drawn here, at the end of the run: shields.io's static badge renders
+label, message and color into an SVG, and the SVG is written in place of the old
+one (a temp file renamed over it, so a fetch never sees half of it). Nothing reads
+it from GitHub, so no push is needed: under /paks/ the apt host's nginx serves a
+name with no version in it as max-age=300, must-revalidate, and Cloudflare follows
+that - a new badge is on the page within five minutes. shields.io unreachable
+(after a few tries): nothing written, the previous badge stays, exit 1.
 
-It only reaches the page once badge.json is pushed: shields.io reads it from
-GitHub, never from this host.
+Only the tail of results.yaml is read: the file only grows, and the newest
+promotion is the last `- run` entry with `published:` set - the last TAIL lines,
+then four times as many, until one is found or the whole file was read.
 """
-import json
+import os
 import sys
+import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import yaml
 
 HERE = Path(__file__).resolve().parent
 RESULTS = HERE / "results.yaml"
-BADGE = HERE / "badge.json"
+BADGE = HERE / "badge.svg"
 COVERAGE = HERE / "coverage.yaml"
+SHIELDS = "https://img.shields.io/static/v1"
 TAIL = 30
+TRIES = 3
 
 
 def tail(path: Path, n: int) -> list[str]:
@@ -51,12 +68,20 @@ def tail(path: Path, n: int) -> list[str]:
     return data.decode().splitlines()[-n:]
 
 
-def newest_run(path: Path) -> dict:
-    lines = tail(path, TAIL)
-    starts = [i for i, line in enumerate(lines) if line.startswith("- run")]
-    if not starts:
-        raise ValueError(f"no '- run' in the last {TAIL} lines of {path}")
-    return yaml.safe_load("\n".join(lines[starts[-1]:]))[0]
+def newest_promoted(path: Path) -> dict:
+    """The last run in results.yaml that published its package."""
+    n = TAIL
+    while True:
+        lines = tail(path, n)
+        starts = [i for i, line in enumerate(lines) if line.startswith("- run")]
+        # the entries from the first whole one in the window on, newest last
+        runs = yaml.safe_load("\n".join(lines[starts[0]:])) if starts else []
+        promoted = [r for r in runs if r.get("published")]
+        if promoted:
+            return promoted[-1]
+        if len(lines) < n:
+            raise ValueError(f"no run in {path} published its package")
+        n *= 4
 
 
 def ytserv_coverage() -> float | None:
@@ -83,23 +108,53 @@ def badge(run: dict) -> dict:
     coverage = ytserv_coverage()
     if coverage is not None:
         parts.append(f"ytserv coverage {coverage:.0f}%")
-    return {"schemaVersion": 1, "label": f"nightly {version}", "message": " · ".join(parts),
-            "color": color, "cacheSeconds": 3600}
+    return {"label": f"nightly {version}", "message": " · ".join(parts), "color": color}
+
+
+def render(b: dict) -> bytes:
+    """The badge as an SVG, drawn by shields.io - a few tries before giving up."""
+    url = f"{SHIELDS}?{urllib.parse.urlencode(b)}"
+    req = urllib.request.Request(url, headers={"User-Agent": "yaxaha-nightly-badge"})
+    for attempt in range(1, TRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                svg = r.read()
+            if svg.lstrip().startswith(b"<svg"):
+                return svg
+            err = f"not an SVG: {svg[:80]!r}"
+        except OSError as e:
+            err = str(e)
+        if attempt < TRIES:
+            time.sleep(10 * attempt)
+    raise OSError(f"{url}: {err}")
+
+
+def write(path: Path, data: bytes) -> None:
+    """Replace path with data at once: a reader sees the old badge or the new one."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_bytes(data)
+    tmp.chmod(0o644)
+    os.replace(tmp, path)
 
 
 def main() -> int:
+    out = Path(sys.argv[sys.argv.index("--out") + 1]) if "--out" in sys.argv else BADGE
     try:
-        run = newest_run(RESULTS)
+        run = newest_promoted(RESULTS)
     except (OSError, ValueError, yaml.YAMLError, IndexError, TypeError) as err:
         print(f"badge: {err}", file=sys.stderr)
         return 1
-    text = json.dumps(badge(run), ensure_ascii=False) + "\n"
+    b = badge(run)
     if "--print" in sys.argv:
-        print(text, end="")
-    else:
-        BADGE.write_text(text)
-        b = json.loads(text)
-        print(f"badge: {BADGE.name} <- run {run.get('run')}: {b['label']} | {b['message']}")
+        print(f"{b['label']} | {b['message']} ({b['color']})\n{SHIELDS}?{urllib.parse.urlencode(b)}")
+        return 0
+    try:
+        write(out, render(b))
+    except OSError as err:
+        print(f"badge: {err}", file=sys.stderr)
+        return 1
+    print(f"badge: {out} <- run {run.get('run')}: {b['label']} | {b['message']}")
     return 0
 
 

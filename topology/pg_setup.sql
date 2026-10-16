@@ -22,11 +22,17 @@
 create or replace function yt_join_gate() returns trigger as $yt_join_gate$
 declare v jsonb;
 begin
-    if new.value = 'ok' then
+    -- a replicated apply: the leader took the approval where it was written
+    if coalesce(current_setting('yt.node', true), '') = 'local' then
+        return new;
+    end if;
+    -- [approve] the leader takes the approval as the row is written: it checks it
+    -- against the entry it holds and arms it, or the write is refused
+    if new.value = 'ok' or new.value like 'ok:%' then
         if inet_client_addr() is not null then
             raise exception 'yt_join: an approval must come from a local connection';
         end if;
-        v := (yt_info('J:' || new.name) -> 0 ->> 'value')::jsonb;
+        v := (yt_info('J=:' || new.name || ' ' || new.value) -> 0 ->> 'value')::jsonb;
         if not coalesce((v->>'ok')::bool, false) then
             raise exception 'yt_join: %', coalesce(v->>'reason', 'refused');
         end if;

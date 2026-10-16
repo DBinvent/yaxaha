@@ -32,10 +32,14 @@
 #    the EL9 rpm into REPO_DIR/yum/el9. Any failure anywhere publishes nothing.
 # 6. The run is appended to nightly/results.yaml, oldest first: a page shows it
 #    newest first by reading the list in reverse.
-# 7. nightly/badge.json is rewritten from it (nightly/badge.py) - the badge
-#    dbinvent.com shows, which shields.io reads from GitHub. NIGHTLY_PUSH=1
-#    commits the two files (and nightly/coverage.yaml) and pushes them, on main and only when no other
-#    commit is waiting to be pushed; otherwise they wait for a hand push.
+# 7. A run that published (a promotion) renews the badge dbinvent.com shows:
+#    drawn from its entry (nightly/badge.py: shields.io renders the SVG) into
+#    REPO_DIR/paks/nightly/badge.svg - served by the apt host as
+#    https://apt.dbinvent.com/paks/nightly/badge.svg, on the page within five
+#    minutes, no push. Any other run leaves the badge as it is. NIGHTLY_PUSH=1 commits results.yaml (and
+#    nightly/coverage.yaml) and pushes them - the history on GitHub - on main
+#    and only when no other commit is waiting to be pushed; otherwise they wait
+#    for a hand push.
 #
 # Coverage: a run that finds nightly/coverage.yaml missing, or listing fewer
 # suites than a whole run, measures it - so renaming or deleting that file has
@@ -498,7 +502,10 @@ fi
 
 # ── 6. the record ───────────────────────────────────────────────────────────────
 END="$(now)"
-export START END TRIGGER CHANGED DEB_V YTS_V BUMPED RESULT BUILD NOTE PUBLISHED_DEB PUBLISHED_RPM RUN_ID ROWS RESULTS COVERAGE_PCT
+# [flags-ab] topology 29b_flags_ab's one-line measurement of the flags that are off by
+# default (peer_stream, one_pc): informational, it never fails the run
+AB_LINE="$(grep -h '^  AB: ' "$LOGS/topology.log" 2>/dev/null | tail -1 | sed 's/^  AB: //' || true)"
+export START END TRIGGER CHANGED DEB_V YTS_V BUMPED RESULT BUILD NOTE PUBLISHED_DEB PUBLISHED_RPM RUN_ID ROWS RESULTS COVERAGE_PCT AB_LINE
 export DURATION=$(( $(secs) - T0 ))
 export REVS="$(for r in $WATCH; do echo "$r=${REV[$r]}"; done)"
 python3 - <<'EOF'
@@ -538,28 +545,38 @@ if e.get("COVERAGE_PCT"):
     out.append(f"  coverage: {e['COVERAGE_PCT']}")
 pub = {k: v for k, v in (("deb", e["PUBLISHED_DEB"]), ("rpm", e["PUBLISHED_RPM"])) if v}
 out.append("  published: " + ("{" + ", ".join(f"{k}: {q(v)}" for k, v in pub.items()) + "}" if pub else "null"))
+if e.get("AB_LINE"):
+    out.append(f"  ab: {q(e['AB_LINE'])}")
 if e["NOTE"]:
     out.append(f"  note: {q(e['NOTE'])}")
 with open(e["RESULTS"], "a") as fh:
     fh.write("\n".join(out) + "\n")
 EOF
 
-# ── 7. the badge ────────────────────────────────────────────────────────────────
-# a run never pushes work in progress along with its badge: not on main, or with
-# commits of its own waiting there, the files wait for a hand push
-python3 "$HERE/badge.py" || say "   badge not written"
+# ── 7. the badge, the history ───────────────────────────────────────────────────
+# the badge vouches for what can be installed: only a promotion renews it, straight
+# on the apt host
+if [ -z "$PUBLISHED_DEB" ]; then
+	say "   badge kept: this run published nothing"
+elif python3 "$HERE/badge.py" --out "$REPO_DIR/paks/nightly/badge.svg"; then
+	say "   badge renewed: $PUBLISHED_DEB"
+else
+	say "   badge not written: the previous one stays"
+fi
+# a run never pushes work in progress along with its history: not on main, or
+# with commits of its own waiting there, the files wait for a hand push
 if [ "${NIGHTLY_PUSH:-0}" = 1 ]; then
 	if [ "$(git -C "$TESTS" rev-parse --abbrev-ref HEAD)" != main ] \
 	   || [ -n "$(git -C "$TESTS" rev-list origin/main..HEAD 2>/dev/null)" ]; then
-		say "   badge not pushed: not on main, or unpushed commits wait there"
-	elif PUSHED=(nightly/results.yaml nightly/badge.json) \
+		say "   results not pushed: not on main, or unpushed commits wait there"
+	elif PUSHED=(nightly/results.yaml) \
 	     && { [ ! -f "$COVERAGE_FILE" ] || PUSHED+=(nightly/coverage.yaml); } \
 	     && git -C "$TESTS" add -- "${PUSHED[@]}" \
 	     && git -C "$TESTS" commit -q -m "nightly $RUN_ID: $RESULT" -- "${PUSHED[@]}" \
 	     && git -C "$TESTS" push -q origin HEAD:main; then
-		say "   badge pushed"
+		say "   results pushed"
 	else
-		say "   badge not pushed"
+		say "   results not pushed"
 	fi
 fi
 say "== nightly $RESULT: $(awk -F'\t' '$1!="build"&&$1!="coverage-build"&&$1!="coverage"&&$1!="release"&&$1!="publish"{p+=$2;f+=$3} END{print p+0" passed, "f+0" failed"}' "$ROWS"), $(( ($(secs) - T0) / 60 )) min${PUBLISHED_DEB:+, published $PUBLISHED_DEB}${NOTE:+ - $NOTE}"

@@ -21,5 +21,7 @@ __pycache__/
 /.env
 /nightly/state/
 /nightly/logs/
+# badge.py by hand without --out (the nightly writes it under REPO_DIR)
+/nightly/badge.svg
 /rmc/.env
 */results/*.log
