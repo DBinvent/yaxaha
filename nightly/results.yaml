@@ -151,3 +151,78 @@
   result: fail
   published: null
   note: "not published: a suite failed"
+- run: "20261016-050003"
+  started: "2026-10-16T05:00:03Z"
+  finished: "2026-10-16T08:29:27Z"
+  minutes: 209
+  trigger: changes
+  changed: ["yt-pgxt"]
+  sources: {"etcd": "49244a4+dirty", "infra_apt": "a74ff16+dirty", "yaxaha_dist": "d987e51+dirty", "yt-pgxt": "a647906+dirty"}
+  version: {deb: "1.18.104", ytserv: "1.1.98", bumped: false}
+  steps:
+    - {name: build, result: pass, minutes: 4}
+  suites:
+    - {name: "unit", passed: 555, failed: 0, minutes: 5, result: pass}
+    - {name: "topology", passed: 691, failed: 1, minutes: 112, result: fail}
+    - {name: "hier", passed: 66, failed: 0, minutes: 6, result: pass}
+    - {name: "lxc", passed: 75, failed: 0, minutes: 2, result: pass}
+    - {name: "llm", passed: 101, failed: 0, minutes: 8, result: pass}
+    - {name: "topo", passed: 343, failed: 0, minutes: 28, result: pass}
+    - {name: "topo-faults", passed: 161, failed: 0, minutes: 11, result: pass}
+    - {name: "topo-membership", passed: 88, failed: 0, minutes: 6, result: pass}
+    - {name: "rmc", passed: 879, failed: 0, minutes: 28, result: pass}
+  totals: {passed: 2959, failed: 1}
+  result: fail
+  published: null
+  ab: "base cw 34.2/s ok, cwc 35.2/s ok, one-node 36.5/s ok | peer_stream cw 33.8/s ok, cwc 35.6/s ok | one_pc one-node 36.6/s ok, kill diverged (held by n2 n3 n4 n5 n6)"
+  note: "not published: a suite failed"
+- run: "20261017-050004"
+  started: "2026-10-17T05:00:04Z"
+  finished: "2026-10-17T14:08:57Z"
+  minutes: 549
+  trigger: changes
+  changed: ["etcd", "yt-pgxt"]
+  sources: {"etcd": "49244a4+dirty", "infra_apt": "a74ff16+dirty", "yaxaha_dist": "d987e51+dirty", "yt-pgxt": "bae936f+dirty"}
+  version: {deb: "1.18.105", ytserv: "1.1.99", bumped: false}
+  steps:
+    - {name: build, result: pass, minutes: 7}
+  suites:
+    - {name: "unit", passed: 673, failed: 0, minutes: 5, result: pass}
+    - {name: "topology", passed: 648, failed: 6, minutes: 388, result: fail}
+    - {name: "hier", passed: 44, failed: 8, minutes: 15, result: fail}
+    - {name: "lxc", passed: 94, failed: 2, minutes: 3, result: fail}
+    - {name: "llm", passed: 101, failed: 0, minutes: 8, result: pass}
+    - {name: "topo", passed: 0, failed: 10, minutes: 21, result: fail}
+    - {name: "topo-faults", passed: 8, failed: 12, minutes: 34, result: fail}
+    - {name: "topo-membership", passed: 8, failed: 12, minutes: 34, result: fail}
+    - {name: "rmc", passed: 8, failed: 12, minutes: 34, result: fail}
+  totals: {passed: 1584, failed: 62}
+  result: fail
+  published: null
+  ab: "base cw 40.0/s ok, cwc 38.0/s diverged, one-node 11.6/s ok | peer_stream cw 40.5/s ok, cwc 40.6/s ok | one_pc one-node 41.2/s ok, kill ok (row on every voter)"
+  note: "not published: a suite failed"
+- run: "20261017-142300"
+  started: "2026-10-17T14:23:00Z"
+  finished: "2026-10-17T19:24:19Z"
+  minutes: 301
+  trigger: changes
+  changed: ["yt-pgxt"]
+  sources: {"etcd": "49244a4+dirty", "infra_apt": "a74ff16+dirty", "yaxaha_dist": "d987e51+dirty", "yt-pgxt": "bae936f+dirty"}
+  version: {deb: "1.18.106", ytserv: "1.1.100", bumped: false}
+  steps:
+    - {name: build, result: pass, minutes: 4}
+  suites:
+    - {name: "unit", passed: 674, failed: 0, minutes: 5, result: pass}
+    - {name: "topology", passed: 813, failed: 14, minutes: 134, result: fail}
+    - {name: "hier", passed: 111, failed: 0, minutes: 11, result: pass}
+    - {name: "lxc", passed: 94, failed: 2, minutes: 3, result: fail}
+    - {name: "llm", passed: 101, failed: 0, minutes: 8, result: pass}
+    - {name: "topo", passed: 8, failed: 12, minutes: 34, result: fail}
+    - {name: "topo-faults", passed: 8, failed: 12, minutes: 34, result: fail}
+    - {name: "topo-membership", passed: 8, failed: 12, minutes: 34, result: fail}
+    - {name: "rmc", passed: 8, failed: 12, minutes: 34, result: fail}
+  totals: {passed: 1825, failed: 64}
+  result: fail
+  published: null
+  ab: "base cw 40.4/s ok, cwc 40.5/s ok, one-node 39.8/s ok | peer_stream cw 41.3/s ok, cwc 40.9/s ok | one_pc one-node 41.4/s ok, kill ok (row on every voter)"
+  note: "not published: a suite failed"

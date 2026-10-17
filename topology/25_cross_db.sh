@@ -64,6 +64,25 @@
 #      extension comes at runtime participates within seconds and replicates, no
 #      restart; skipped by `databases = *, -app2` (written locally) it is let go
 #      of, can be dropped (B9), and leaves the list.
+#   8  [natural-key] a cluster insert from the leader applies on a node that wrote
+#      rows of its own (trigger off) first; a value UPDATE on the leader takes
+#      effect on the leader too (yt_info('c:tcp_timeout_ms')).
+#   9  [D4] appdb's own def_sql_timeout_sec is its tables' fallback and theirs only
+#      (yt_info('c:..@appdb'), a: source.timeout_sec); a catalog setting written in
+#      appdb is ignored (yt_info('U') ignored=1) and changes nothing.
+#  10  [D12] the yt_config_effective view in appdb; yxctl --config-lint finds the
+#      misplaced row (exit 34) and no longer once it is gone.
+#  11  [D5] C recon_batch_max@<uuid> written on the leader applies on that node
+#      alone; deleted, the node takes the plain value again.
+#  13  [D11] one rppd per database (yt-pgxt combined-config.md D11, 2026-10-16, not
+#      run yet): app4 listed in C rppd_dbs - ytserv creates rppd's tables there by
+#      SchemaGuard; a function in app4 starts an instance of its own (its queues
+#      /q/app4/...), which runs it on a commit of an app4 table - on the leader,
+#      once, recorded in app4's rppd_function_log - and appdb's instance does not
+#  12  a users database (app3) with a synced config table: a catalog setting
+#      written there is refused and stored nowhere, a database setting applies
+#      live everywhere; yxctl --db-remove on the leader detaches it on every
+#      node, which then lets it be dropped.
 #
 # ## Gaps this found, fixed in ytserv 0.20.57
 #
@@ -756,5 +775,233 @@ for n in "${NODES[@]}"; do
 	cfg_delete "$n" databases C
 	pq "$n" "drop database if exists $PLAIN" >/dev/null 2>&1
 done
+
+# ── 8 ───────────────────────────────────────────────────────────────────────
+# [natural-key] The config table keyed by (module, name) (yt-pgxt combined-config.md
+# D6): a row written locally on one node (trigger off) takes ids that a cluster
+# insert from the leader then carries - which failed on the old id key - and a
+# value UPDATE written on the leader takes effect on the leader too, not only on
+# the nodes that took it by apply (the phase-2 trap, fixed the same day).
+echo "-- 8: the config table's natural key"
+c_wait() { # <tag> <node> <letters> <name> <want> [seconds]: wait for a yt_info value
+	local tag="$1" n="$2" l="$3" name="$4" want="$5" t="${6:-60}" v=""
+	for _ in $(seq 1 "$t"); do
+		v="$(info "$n" "$l" "$name" || true)"
+		[ "$v" = "$want" ] && { ok "$tag: $n: $l $name = $v"; return 0; }
+		sleep 1
+	done
+	bad "$tag: $n: $l $name = [$v], wanted [$want]"
+}
+L="$(x_leader)"
+F=""
+for n in "${NODES[@]}"; do [ "$n" != "$L" ] && { F="$n"; break; }; done
+if [ -z "$L" ] || [ -z "$F" ]; then
+	bad "8: no leader to write on (leader [$L], follower [$F])"
+else
+	for i in 1 2 3; do cfg_write "$F" "xdb_probe_local_$i" C "$i"; done
+	e="$(qe "$L" "insert into $YX_CFG (name, module, value) values ('xdb_probe_cluster', 'C', '1')" postgres)"
+	[[ "$e" == *ERROR* ]] && bad "8a: the cluster insert on $L: $e"
+	for n in "${NODES[@]}"; do
+		v=""
+		for _ in $(seq 1 30); do
+			v="$(pq "$n" "select value from $YX_CFG where module = 'C' and name = 'xdb_probe_cluster'")"
+			[ "$v" = "1" ] && break
+			sleep 1
+		done
+		check "8a: the leader's insert is on $n beside its local rows" "1" "$v"
+	done
+	was="$(pq "$L" "select value from $YX_CFG where module = 'C' and name = 'tcp_timeout_ms'")"
+	e="$(qe "$L" "update $YX_CFG set value = '2100' where module = 'C' and name = 'tcp_timeout_ms'" postgres)"
+	[[ "$e" == *ERROR* ]] && bad "8b: the value UPDATE on $L: $e"
+	for n in "${NODES[@]}"; do c_wait "8b" "$n" "c:tcp_timeout_ms" effective 2100 30; done
+	qe "$L" "update $YX_CFG set value = '${was:-2000}' where module = 'C' and name = 'tcp_timeout_ms';
+	         delete from $YX_CFG where module = 'C' and name = 'xdb_probe_cluster'" postgres >/dev/null
+	for i in 1 2 3; do cfg_delete "$F" "xdb_probe_local_$i" C; done
+fi
+
+# ── 9 ───────────────────────────────────────────────────────────────────────
+# [D4] A users database's own setting: def_sql_timeout_sec in appdb's table, read
+# by the discovery pass (the table is not synced here: written on every node), is
+# appdb's tables' fallback - and only theirs. A catalog setting written there
+# (min_cluster_size) is counted ignored and changes nothing.
+echo "-- 9: $APPDB's own settings"
+cat_timeout="$(info "$TOP" "c:def_sql_timeout_sec" effective || true)"
+for n in "${NODES[@]}"; do
+	app_cfg_write "$n" def_sql_timeout_sec C 7
+	app_cfg_write "$n" min_cluster_size C 9
+done
+for n in "${NODES[@]}"; do
+	c_wait "9" "$n" "c:def_sql_timeout_sec@$APPDB" effective 7 60
+	check "9: $n: its source is $APPDB" "$APPDB" "$(info "$n" "c:def_sql_timeout_sec@$APPDB" source || true)"
+	check "9: $n: the catalog's own is unchanged" "$cat_timeout" "$(info "$n" "c:def_sql_timeout_sec" effective || true)"
+	check "9: $n: cx_t's timeout falls back to $APPDB's" "7 ($APPDB def_sql_timeout_sec; stored 0)" \
+		"$(info "$n" "a:$APPDB.public.cx_t" source.timeout_sec || true)"
+	check "9: $n: min_cluster_size written in $APPDB changes nothing" "3" "$(info "$n" "c:min_cluster_size" effective || true)"
+	u="$(u_line "$n" "$APPDB")"
+	[[ "$u" == *"overrides=def_sql_timeout_sec ignored=1"* ]] && ok "9: $n: yt_info('U') shows $APPDB's own and ignored rows" \
+		|| bad "9: $n: yt_info('U') for $APPDB is [$u]"
+done
+
+# ── 10 ──────────────────────────────────────────────────────────────────────
+# [D12] the combined config as appdb sees it (the yt_config_effective view), and
+# yxctl --config-lint on the misplaced row (exit 34), clean once it is gone
+echo "-- 10: the combined view; --config-lint"
+check "10: $TOP: yt_config_effective in $APPDB" "7|$APPDB|Database" \
+	"$(aq "$TOP" "select value || '|' || source || '|' || scope from yt_config_effective where name = 'def_sql_timeout_sec'")"
+out="$(rh "docker exec -u postgres $TOP yxctl --config-lint -d postgres 2>&1; echo rc=\$?" || true)"
+[[ "$out" == *"rc=34"* && "$out" == *"min_cluster_size"* ]] && ok "10: --config-lint on $TOP finds $APPDB's min_cluster_size (exit 34)" \
+	|| bad "10: --config-lint on $TOP: $(printf '%s' "$out" | tail -4 | tr '\n' ' ')"
+for n in "${NODES[@]}"; do
+	aq "$n" "alter table public.yt_config disable trigger user;
+	         delete from public.yt_config where module = 'C';
+	         alter table public.yt_config enable trigger user;" >/dev/null
+done
+for n in "${NODES[@]}"; do c_wait "10" "$n" "c:def_sql_timeout_sec@$APPDB" source default 60; done
+# the fixture's own catalog rows (cfg_ready, the entrypoint's marker) name no
+# setting and stay reported: what must be gone is appdb's
+out="$(rh "docker exec -u postgres $TOP yxctl --config-lint -d postgres 2>&1; echo rc=\$?" || true)"
+[[ "$out" == *"rc="* && "$out" != *"$APPDB.public.yt_config: C min_cluster_size"* ]] \
+	&& ok "10: --config-lint on $TOP no longer reports $APPDB's row once it is gone" \
+	|| bad "10: --config-lint on $TOP after the delete: $(printf '%s' "$out" | tail -4 | tr '\n' ' ')"
+
+# ── 11 ──────────────────────────────────────────────────────────────────────
+# [D5] A node's own row, C <name>@<uuid>, written once on the leader (the catalog
+# is synced): it replicates, applies on that node alone and wins over the plain
+# value there; deleted, the node takes the plain value again.
+echo "-- 11: a node's own row"
+L="$(x_leader)"
+T="$EAST1"
+tu="$(node_uuid "$T")"
+plain="$(info "$T" "c:recon_batch_max" effective || true)"
+if [ -z "$L" ] || [ -z "$plain" ]; then
+	bad "11: no leader [$L] or no recon_batch_max on $T [$plain]"
+else
+	e="$(qe "$L" "insert into $YX_CFG (name, module, value) values ('recon_batch_max@$tu', 'C', '777')" postgres)"
+	[[ "$e" == *ERROR* ]] && bad "11: the per-node row on $L: $e"
+	c_wait "11" "$T" "c:recon_batch_max" effective 777 30
+	check "11: $T: the value comes from its own row" "catalog @${tu:0:8}" "$(info "$T" "c:recon_batch_max" source || true)"
+	for n in "${NODES[@]}"; do
+		[ "$n" = "$T" ] && continue
+		check "11: $n: another node's row does not apply here" "$plain" "$(info "$n" "c:recon_batch_max" effective || true)"
+	done
+	qe "$L" "delete from $YX_CFG where module = 'C' and name = 'recon_batch_max@$tu'" postgres >/dev/null
+	c_wait "11" "$T" "c:recon_batch_max" effective "$plain" 60
+fi
+
+# ── 12 ──────────────────────────────────────────────────────────────────────
+# [phase 4/5] A users database whose config table is synced: a catalog setting
+# written there is refused on the origin and stored nowhere; a database setting
+# applies live on every node; then `yxctl --db-remove` on the leader detaches it
+# cluster-wide (`!app3` in the synced catalog's C databases), and every node lets
+# go of it, so it can be dropped.
+echo "-- 12: a users database with a synced config table; yxctl --db-remove"
+APP3="${XDB_APP3:-app3}"
+for n in "${NODES[@]}"; do
+	[ "$(pq "$n" "select count(*) from pg_database where datname='$APP3'")" = "1" ] \
+		|| pq "$n" "create database $APP3" >/dev/null
+	q "$n" "create extension if not exists yaxaha" "$APP3" >/dev/null
+done
+for n in "${NODES[@]}"; do u_wait "12" "$n" "$APP3" "participant *" 45; done
+for n in "${NODES[@]}"; do
+	q "$n" "select count(*) from yt_setup('public.yt_config', '', true, 'public.yt_config')" "$APP3" >/dev/null
+done
+L="$(x_leader)"
+if [ -z "$L" ]; then
+	bad "12: no leader"
+else
+	e="$(qe "$L" "insert into public.yt_config (name, module, value) values ('min_cluster_size', 'C', '9')" "$APP3")"
+	echo "  12a: the write on $L answered: $(printf '%s' "$e" | head -2 | tr '\n' ' ')"
+	check "12a: a catalog setting written in $APP3 is not stored" "0" \
+		"$(q "$L" "select count(*) from public.yt_config where module = 'C' and name = 'min_cluster_size'" "$APP3")"
+	for n in "${NODES[@]}"; do
+		check "12a: $n: min_cluster_size unchanged" "3" "$(info "$n" "c:min_cluster_size" effective || true)"
+	done
+	e="$(qe "$L" "insert into public.yt_config (name, module, value) values ('def_cluster_commit', 'C', 'all')" "$APP3")"
+	[[ "$e" == *ERROR* ]] && bad "12b: the database setting on $L: $e"
+	for n in "${NODES[@]}"; do c_wait "12b" "$n" "c:def_cluster_commit@$APP3" source "$APP3" 30; done
+	out="$(rh "docker exec -u postgres $L yxctl --db-remove $APP3 --drop-extension -d postgres 2>&1; echo rc=\$?" || true)"
+	[[ "$out" == *"rc=0"* ]] && ok "12c: yxctl --db-remove $APP3 on $L" \
+		|| bad "12c: yxctl --db-remove $APP3 on $L: $(printf '%s' "$out" | tail -4 | tr '\n' ' ')"
+	for n in "${NODES[@]}"; do u_wait "12c" "$n" "$APP3" "detached" 90; done
+	for n in "${NODES[@]}"; do
+		pq "$n" "drop database $APP3" >/dev/null 2>&1
+		check "12c: $APP3 dropped on $n" "0" "$(pq "$n" "select count(*) from pg_database where datname='$APP3'")"
+	done
+	qe "$(x_leader)" "delete from $YX_CFG where module = 'C' and name = 'databases'" postgres >/dev/null
+fi
+
+# ── 13 ──────────────────────────────────────────────────────────────────────
+# [D11] One rppd per database: app4's functions run in an instance of their own.
+echo "-- 13: one rppd per database (app4)"
+APP4="${XDB_APP4:-app4}"
+for n in "${NODES[@]}"; do
+	[ "$(pq "$n" "select count(*) from pg_database where datname='$APP4'")" = "1" ] \
+		|| pq "$n" "create database $APP4" >/dev/null
+	q "$n" "create extension if not exists yaxaha" "$APP4" >/dev/null
+done
+for n in "${NODES[@]}"; do u_wait "13" "$n" "$APP4" "participant *" 45; done
+for n in "${NODES[@]}"; do
+	q "$n" "select count(*) from yt_setup('public.yt_config', '', true, 'public.yt_config')" "$APP4" >/dev/null
+	q "$n" "create table if not exists cx_py4 (id bigint primary key, v text);
+	        create table if not exists cx_sink (id serial primary key, data text);" "$APP4" >/dev/null
+done
+L="$(x_leader)"
+if [ -z "$L" ]; then
+	bad "13: no leader"
+else
+	# [rppd-tables] rppd's tables in app4: ytserv's, by SchemaGuard over rppd.yaml
+	qe "$L" "delete from $YX_CFG where module = 'C' and name = 'rppd_dbs';
+	         insert into $YX_CFG (name, module, value) values ('rppd_dbs', 'C', '$APP4')" postgres >/dev/null
+	made=0
+	for _ in $(seq 1 30); do
+		made=0
+		for n in "${NODES[@]}"; do
+			[ "$(q "$n" "select to_regclass('public.rppd_function') is not null" "$APP4")" = "t" ] && made=$((made + 1))
+		done
+		[ "$made" = "${#NODES[@]}" ] && break
+		sleep 2
+	done
+	check "13a: ytserv created rppd's tables in $APP4 on every node (C rppd_dbs)" "${#NODES[@]}" "$made"
+	# the table's sync, its A row through app4's synced config table, the function
+	for n in "${NODES[@]}"; do
+		q "$n" "drop trigger if exists zytsync_public_cx_py4_trigger on cx_py4;
+		        create trigger zytsync_public_cx_py4_trigger after insert or update or delete on cx_py4
+		        for each row execute procedure yt_synchronize();
+		        delete from rppd_function where schema_table='public.cx_py4';
+		        insert into rppd_function (code, checksum, schema_table, topic, fn_logging, verbose_debug)
+		        values (\$fn\$$FN\$fn\$, 'na', 'public.cx_py4', '', true, true)" "$APP4" >/dev/null
+	done
+	e="$(qe "$L" "delete from public.yt_config where module = 'A' and name = 'public.cx_py4';
+	             insert into public.yt_config (name, module, value) values ('public.cx_py4', 'A', '$PYCFG')" "$APP4")"
+	[[ "$e" == *ERROR* ]] && bad "13b: the A row of $APP4.cx_py4 on $L: $e"
+	# its instance starts within a tick (30 s), with its database's queues
+	st=""
+	for _ in $(seq 1 45); do
+		st="$(rh "docker logs $L 2>&1 | grep -a 'rppd started for database $APP4' | tail -1" 2>/dev/null || true)"
+		[ -n "$st" ] && break
+		sleep 2
+	done
+	[ -n "$st" ] && ok "13b: $L started the rppd of $APP4" || bad "13b: no rppd started for $APP4 on $L"
+	sink_b="$(q "$L" "select count(*) from cx_sink" "$APP4")"
+	app_b="$(sum_app "select count(*) from cx_sink")"
+	out="$(qe "$W" "begin; insert into cx_py4 values (1, 'd11'); select yt_complete(true); commit;" "$APP4")"
+	[[ "$out" == *ERROR* ]] && bad "13c: the write to $APP4.cx_py4: $out"
+	ran=0
+	for _ in $(seq 1 30); do
+		ran=$(( $(q "$L" "select count(*) from cx_sink" "$APP4") - ${sink_b:-0} ))
+		[ "$ran" -ge 1 ] && break
+		sleep 2
+	done
+	check "13c: the function of $APP4 ran on the leader $L, once, in $APP4's own instance" "1" "$ran"
+	logs="$(q "$L" "select count(*) from rppd_function_log" "$APP4")"
+	[ "${logs:-0}" -ge 1 ] && ok "13c: $APP4.rppd_function_log records it" || bad "13c: nothing in $APP4.rppd_function_log"
+	check "13c: $APPDB's instance ran nothing for it" "$app_b" "$(sum_app "select count(*) from cx_sink")"
+	# done: app4 goes as app3 did
+	qe "$L" "delete from $YX_CFG where module = 'C' and name = 'rppd_dbs'" postgres >/dev/null
+	rh "docker exec -u postgres $L yxctl --db-remove $APP4 --drop-extension -d postgres >/dev/null 2>&1" || true
+	for n in "${NODES[@]}"; do u_wait "13" "$n" "$APP4" "detached" 90; done
+	for n in "${NODES[@]}"; do pq "$n" "drop database $APP4" >/dev/null 2>&1; done
+	qe "$(x_leader)" "delete from $YX_CFG where module = 'C' and name = 'databases'" postgres >/dev/null
+fi
 
 summary

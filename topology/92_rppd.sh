@@ -13,8 +13,8 @@
 # path does NOT exist in this build: the C extension (`ytpgc`) exports no
 # `rppd_event` - `nm -D` on the shipped `.so` lists `yt_complete`, `yt_info`,
 # `yt_synchronize`, `yt_diff_apply` and friends and nothing else. The trigger
-# form is pgrx-era (`ytpgxt.sql` still carries its DDL, referencing
-# `src/pg_rppd.rs`).
+# form is pgrx-era (the pgrx extension's `ytpgxt.sql`, gone since 2026-10-16,
+# carried its DDL, referencing `src/pg_rppd.rs`).
 #
 # What this build has is `CfgTabl.on_commit_python` - "Use this flag instead of
 # RPPD trigger for every row, so data will be available" - dispatched from
@@ -26,59 +26,17 @@
 #
 # `serve_rppd` is off by default, on purpose: "a cluster that silently starts
 # executing rows a tool wrote into a table is the worst possible default"
-# (`rmc.rs`). The `rppd_*` tables are not in `yaxaha--0.5.sql` either, so the
-# fixture installs them - the columns ytserv actually selects, and no
-# `rppd_event` triggers, since the function does not exist.
+# (`rmc.rs`). The `rppd_*` tables are not in `yaxaha--0.5.sql`: ytserv creates them
+# (2026-10-16, `[rppd-tables]`) - with serve_rppd on, by SchemaGuard over rppd's
+# own rppd.yaml, in the database rppd uses (the catalog here) - and no
+# `rppd_event` triggers, since the function does not exist. This test once
+# installed them by hand; it now asserts ytserv did (R0).
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 echo "== server functions: a python function runs on a cluster commit =="
 
-# Taken from `rppd/rppd-pg-c/pg_setup.sql`, the CURRENT schema - not from
-# `ytpgc/ytpgxt.sql`, which is the pgrx-era copy and is missing
-# `rppd_function_log.output`. That one column cost a whole run: the runtime died
-# at startup with `column "output" does not exist`, nothing was dispatched, and
-# the test reported "the python function did not run" - which was true, and had
-# nothing to do with python.
-#
-# The two tables ytserv queries at startup, verbatim from its own SQL:
-#   select id, host, host_name, active_since, master, max_db_connections from rppd_config ...
-#   select id, code, checksum, schema_table, topic, queue, cleanup_logs_min,
-#          priority, fn_logging, verbose_debug from rppd_function
-RPPD_DDL="
-create table if not exists rppd_config (
-    id serial primary key,
-    host varchar(64) not null unique,
-    host_name varchar(64) not null unique,
-    active_since timestamptz default current_timestamp,
-    max_db_connections int not null default 10,
-    master bool unique);
-create table if not exists rppd_function (
-    id serial primary key,
-    code text not null,
-    checksum varchar(64) not null,
-    schema_table varchar(64) not null,
-    topic varchar(64) not null default '',
-    priority int not null default 1,
-    queue bool not null default true,
-    cleanup_logs_min int not null default 0,
-    fn_logging bool not null default false,
-    verbose_debug bool not null default false,
-    env json, sign json);
-create table if not exists rppd_function_log (
-    id bigserial primary key,
-    node_id int not null,
-    fn_id int not null,
-    trig_value json,
-    trig_type int not null default 0,
-    started_at timestamptz not null default current_timestamp,
-    took_ms bigint,
-    output text,
-    error_msg text);
-"
-
 # The sink the function writes to, and the source that triggers it.
 for n in "${NODES[@]}"; do
-	q "$n" "$RPPD_DDL
-	        drop table if exists sf_t; create table sf_t (id bigint primary key, v text);
+	q "$n" "drop table if exists sf_t; create table sf_t (id bigint primary key, v text);
 	        drop table if exists sf_sink; create table sf_sink (id serial primary key, data text);" >/dev/null
 	cfg_write "$n" serve_rppd C true
 done
@@ -99,6 +57,18 @@ done
 
 check "serve_rppd is on for $L" "true" \
 	"$(q "$L" "select value from $YX_CFG where module='C' and name='serve_rppd'")"
+
+# ── R0: ytserv created rppd's tables, every column rppd.yaml declares ────────
+made=0
+for n in "${NODES[@]}"; do
+	t="$(q "$n" "select count(*) from information_schema.tables where table_schema = 'public' \
+		and table_name in ('rppd_config', 'rppd_function', 'rppd_function_log', 'rppd_cron', 'rppd_function_state')")"
+	# a column the old hand-written DDL never had: only rppd.yaml declares it
+	c="$(q "$n" "select count(*) from information_schema.columns where table_schema = 'public' \
+		and table_name = 'rppd_function' and column_name = 'secret_names'")"
+	[ "$t" = 5 ] && [ "$c" = 1 ] && made=$((made + 1)) || echo "     $n: rppd tables $t of 5, secret_names $c"
+done
+check "R0 ytserv created rppd's 5 tables from rppd.yaml on every node (SchemaGuard, no hand DDL)" "${#NODES[@]}" "$made"
 
 # ── register the node, and let the cluster register the rest ───────────────
 #

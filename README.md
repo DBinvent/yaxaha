@@ -1,6 +1,6 @@
 # YaXAHA Cluster Integration Tests
 
-We run our tests on Debian-based Linux distributions and can’t give any promises about the compatibility with many other versions and distros, except for those we use ourselves in development now. Last tests were made on Ubuntu 22.10 and Debian 11.
+We run our tests on Debian-based Linux distributions and can’t give any promises about the compatibility with many other versions and distros, except for those we use ourselves in development now. The suites below run in docker on Ubuntu 24.04 and 26.04 with PostgreSQL 18, and the package suite (lxc/) on Ubuntu 24.04; the cargo-make test further down runs in an Ubuntu 22.04 container with PostgreSQL 14 (`./docker.sh`).
 
 YaXAHA Cluster is written in Rust and out of habit we use cargo-make in the integration tests.
 
@@ -135,14 +135,16 @@ Now, everything is ready for the YaXAHA Cluster installation and running the int
 Please download and install the public signing key:
 
 ```shell
-wget -O - https://www.dbinvent.com/dist/DBinventLLC.gpg.key | sudo apt-key add -
+curl -fsSL https://apt.dbinvent.com/dev.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/yaxaha.gpg
 ```
 
 Add our repository to your sources.list:
 
 ```shell
-echo "deb http://apt.dbinvent.com/ yaxaha restricted" > sudo /etc/apt/sources.list.d/dbinvent.list
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/yaxaha.gpg] https://apt.dbinvent.com yaxaha restricted" | sudo tee /etc/apt/sources.list.d/yaxaha.list
 ```
+
+The repository is served over HTTPS, so `ca-certificates` must be installed; it is on a stock Ubuntu 20.04+ / Debian 10+.
 
 Install the YaXAHA Cluster package:
 
@@ -152,10 +154,10 @@ sudo apt update && sudo apt install yaxaha
 
 The package is dual-licensed: see [License](#license).
 
-Then run ytsetup to install the PostgreSQL extension and finally enable YaXAHA Cluster.
+Then run `yxctl` to install the PostgreSQL extension, create the configuration table and register the service:
 
 ```shell
-sudo ytsetup
+sudo yxctl
 ```
 
 And now we are ready to perform the YaXAHA Cluster integration tests.
@@ -176,7 +178,7 @@ cd yaxaha
 
 Now you can run an integration test that will locally create three copies of PostgreSQL, run them on different ports as if they were three independent cluster nodes, then run some tests and shut down all nodes.
 
-> Note: the `PG_VER` parameter specifies the PostgreSQL version installed. Different Linux distributions have different PostgreSQL versions onboard, for example, Debian 11 comes with PostgreSQL v.13, while Ubuntu 22.10 comes with v.14.
+> Note: the `PG_VER` parameter specifies the PostgreSQL major version installed. Different Linux distributions have different PostgreSQL versions onboard, for example, Debian 12 comes with PostgreSQL 15 and Ubuntu 24.04 with 16; the container of `./docker.sh` has 14.
 
 To run several nodes in parallel:
 
@@ -361,15 +363,20 @@ APT_HOST=<host> ./docker.sh      # another apt repo; APT_HOST_IP=<address> if DN
 
 ## License
 
+This repository is dual-licensed the same way as the package: see
+[LICENSE](LICENSE) and [PolyForm-Noncommercial-1.0.0.md](PolyForm-Noncommercial-1.0.0.md).
+
 The suites install and test the `yaxaha` deb package from apt.dbinvent.com; the
 nightly also publishes it as an EL9 rpm. The package is dual-licensed:
 
 1. **Free for noncommercial use**, under the
    [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0).
-2. **A paid commercial license** from DBinvent LLC for commercial use, on the
+2. **A paid commercial license** from DBinvent for commercial use, on the
    DBinvent Commercial License terms.
 
 Both texts ship in the package, in `/usr/share/doc/yaxaha/`: `LICENSE` states
 the dual license and holds the commercial terms, and
-`PolyForm-Noncommercial-1.0.0.md` is the noncommercial license. See also
+`PolyForm-Noncommercial-1.0.0.md` is the noncommercial license. Beside them,
+`lib-licenses.txt` lists the third-party libraries the binaries are built from,
+by license. See also
 [Licensing](https://www.dbinvent.com/cluster/guide/licensing) on dbinvent.com.

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # The steps and checks test.sh is made of. Source after lib.sh.
+. "$HERE/store.sh" # [H2] the clusters run on the secret store: a join is approved
 
 # ── checks ───────────────────────────────────────────────────────────────────
 
@@ -309,6 +310,8 @@ SQL
     fi
     say "  ....  $n holds $(q "$n" <<< "select count(*) from $CFG where module = 'N'") N rows, own row: $(q "$n" <<< "select count(*) from $CFG where module = 'N' and name = '$u'")"
     t0=$(date +%s)
+    # [H2] the cluster runs on the store: its join waits for the operator's approval
+    store_join "$c" "$n"
     l=$(leader_of "$c")
     if wait_for "$RMC_WAIT" follows "$n" "$l"; then
         ok "$n follows $l after $(( $(date +%s) - t0 ))s"

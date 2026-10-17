@@ -171,8 +171,11 @@ node_run "$N2" "$S2" & p2=$!
 wait "$p1" "$p2" || bad "M7 docker run $N1, $N2"
 for n in $N1 $N2; do wait_for 300 ext_ready "$n" && ok "M7 $n is up, a copy" || bad "M7 $n up: $(docker logs "$(cname "$n")" 2>&1 | grep -a '\[node\]' | tail -1)"; done
 t0=$(date +%s)
+# [H2] the clusters run on the secret store: a join waits for the operator's
+# approval - given on the leader while the join is waited for (../rmc/store.sh)
+follows_approved() { approve_pending $C >/dev/null 2>&1; follows "$@"; }
 for n in $N1 $N2; do
-    wait_for "$RMC_WAIT" follows "$n" "$(leader_of $C)" && ok "M7 $n follows $(leader_of $C) after $(( $(date +%s) - t0 ))s" \
+    wait_for "$RMC_WAIT" follows_approved "$n" "$(leader_of $C)" && ok "M7 $n follows $(leader_of $C) after $(( $(date +%s) - t0 ))s" \
         || bad "M7 $n follows within ${RMC_WAIT}s: [$(node_status "$n" | cut -d'|' -f1,4)]"
 done
 load_pause $C
@@ -213,7 +216,7 @@ select format('insert into $CFG (id, name, module, value) values (%s, %L, %L, %L
 from $CFG where not (module = 'C' and name in ('term', 'single', 'leader_uuid', 'least', 'reshape_run')) order by id
 SQL
     s0=$(since)
-    if wait_for "$RMC_WAIT" follows "$NE" "$(leader_of $C)"; then
+    if wait_for "$RMC_WAIT" follows_approved "$NE" "$(leader_of $C)"; then
         ok "M2 $NE, empty, admitted: it follows $(leader_of $C)"
         load_pause $C
         miss() { LC_ALL=C comm -23 "$RUN/t7.before" <(ids "$NE") | grep -c .; }

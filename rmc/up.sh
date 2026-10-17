@@ -7,8 +7,11 @@
 #   3. each cluster's config, the same rows with the same ids on its members
 #   4. cfg_ready on all nodes at once: one synchronised cold start
 #   5. wait: a leader in each cluster, and a write that commits and replicates
+#   5b. the secret store and TLS in every cluster, the links set up and approved:
+#      a hierarchy runs on them (yt-pgxt skv-secrets.md H2, store.sh)
 #   6. the three writers start
 . "$(dirname "$0")/lib.sh"
+. "$HERE/store.sh"
 
 docker image inspect "$IMAGE" >/dev/null 2>&1 || die "no image $IMAGE - run build.sh first"
 
@@ -65,6 +68,9 @@ for c in "${CLUSTERS[@]}"; do
     wait_for "$RMC_WAIT" commits "$c" || die "$c does not commit and replicate"
     say "  $c: leader $(leader_of "$c"), term $(node_term "$(leader_of "$c")"), writable"
 done
+
+say "== 5b. the store and TLS, the links (H2)"
+store_up || die "the clusters are not on the secret store and TLS"
 
 say "== 6. writers"
 for c in "${CLUSTERS[@]}"; do

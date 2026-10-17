@@ -9,11 +9,15 @@
 #       (`n = n + (new - old)`, no precondition), so writers on different nodes
 #       incrementing one counter all survive instead of refusing each other;
 #   (b) `merge_text=body`  - a text column is merged as a 3-way LINE patch onto
-#       the value the receiver holds; an edit of the same line is refused;
+#       the value the receiver holds; an edit of the same line is refused - of
+#       the same words of it: a line both sides rewrote merges word by word;
 #   (c) bare `merge` arrays - a same-length array is patched element by element,
 #       a pure append is appended only to an array of the length its writer read
 #       (two appends would land in each node's own arrival order), and any other
-#       array change (a middle insert) keeps the whole-array precondition.
+#       array change (a middle insert) is merged 3-way by position (diff-doc-rs) or
+#       refused - a middle insert over an element changed further on is refused;
+#       an array of objects that all carry a unique `id` merges by key (c4, c5;
+#       merge.md §5, 2026-10-16, not run yet).
 #
 # ## Staged, like 96 §3
 #
@@ -173,7 +177,7 @@ fi
 #
 # Every staged assertion below fails on a table without these fields, but the
 # racing half of (a) could pass by luck - so check in band first. yt_info prints
-# `all_fields=<bool> text_col=<count>` for a merge table, `-` without.
+# `all_fields=<bool> text_col=<count> inc_col=<count>` for a merge table, `-` without.
 cfg_ok=1
 for n in "${NODES[@]}"; do
 	c="$(info "$n" "a:public.mm_cnt" merge)"
@@ -212,6 +216,16 @@ check "the refused edit left no trace on its origin" "t" \
 	"$(q n1 "select body = E'line1\nline2\nline3\nline4 by n1\nline5' from mm_txt where id=1")"
 check "...and n4 kept its own line" "t" \
 	"$(q n4 "select body like '%line2 by n4%' and body like '%line4 by n1%' from mm_txt where id=1")"
+
+# A line both sides rewrote merges word by word (merge.md 2.3): n4's copy of
+# line 4 changes its first word, n1's write its last.
+stage_on n4 mm_txt "update mm_txt set body = replace(body, 'line4 by n1', 'LINE4 by n1') where id=1;"
+out="$(write_on n1 "update mm_txt set body = replace(body, 'line4 by n1', 'line4 by N1') where id=1;")"
+expect_commit "an edit of ANOTHER WORD of a line n4 also changed commits" "$out"
+check "n4 holds both words of line 4 - its LINE4, n1's N1 - beside its own line 2" "t" \
+	"$(settle n4 "select body = E'line1\nline2 by n4\nline3\nLINE4 by N1\nline5' from mm_txt where id=1" t)"
+on_others "every other node holds n1's N1 alone" n4 "t" \
+	"select body = E'line1\nline2\nline3\nline4 by N1\nline5' from mm_txt where id=1"
 
 # ── (c) arrays by position ──────────────────────────────────────────────────
 echo "  (c) arrays: element-wise, append, and a middle insert..."
@@ -253,6 +267,26 @@ out="$(write_on n1 "update mm_arr set doc = jsonb_insert(doc, '{l,2}', '\"X\"') 
 expect_55409 "a middle insert against a diverged array is refused with 55409" "$out"
 check "the refused insert left no trace on its origin" '["a", "B by n1", "c", "d", "e"]' \
 	"$(q n1 "select doc->'l' from mm_arr where id=1")"
+
+# (c4) [merge-keyed] objects that all carry a unique `id`: merged by key. n4 put
+# element 9 in front of its copy; n1 changes element 2. By position that is an
+# element write under a shift - by key, two disjoint edits.
+seed mm_arr "(2, '{\"items\": [{\"id\": 1, \"v\": \"a\"}, {\"id\": 2, \"v\": \"b\"}]}')" \
+	"select jsonb_array_length(doc->'items') from mm_arr where id=2" "2"
+stage_on n4 mm_arr "update mm_arr set doc = jsonb_set(doc, '{items}', '[{\"id\": 9, \"v\": \"z\"}]'::jsonb || (doc->'items')) where id=2;"
+out="$(write_on n1 "update mm_arr set doc = jsonb_set(doc, '{items,1,v}', '\"B by n1\"') where id=2;")"
+expect_commit "a keyed element update commits over an element put in front elsewhere" "$out"
+check "n4 holds its element 9 AND n1's change of element 2, by key" "t" \
+	"$(settle n4 "select doc->'items' = '[{\"id\": 9, \"v\": \"z\"}, {\"id\": 1, \"v\": \"a\"}, {\"id\": 2, \"v\": \"B by n1\"}]'::jsonb from mm_arr where id=2" t)"
+on_others "every other node holds n1's element 2" n4 "t" \
+	"select doc->'items' = '[{\"id\": 1, \"v\": \"a\"}, {\"id\": 2, \"v\": \"B by n1\"}]'::jsonb from mm_arr where id=2"
+
+# (c5) ...and n1 removing an element n4 changed is an intersect: refused
+stage_on n4 mm_arr "update mm_arr set doc = jsonb_set(doc, '{items,1,v}', '\"A by n4\"') where id=2;"
+out="$(write_on n1 "update mm_arr set doc = jsonb_set(doc, '{items}', (doc->'items') - 0) where id=2;")"
+expect_55409 "removing an element changed elsewhere is refused with 55409" "$out"
+check "the refused removal left no trace on its origin" "2" \
+	"$(q n1 "select jsonb_array_length(doc->'items') from mm_arr where id=2")"
 
 # ── (a) merge_all_fields: counters ──────────────────────────────────────────
 echo "  (a) counters: increments compose, staged and raced..."

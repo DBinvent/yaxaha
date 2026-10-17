@@ -12,6 +12,9 @@
 #       "Sub-term ... already exists" (what a stale cluster WAL would cause).
 #   L3  --batch --peers <file with two names> --cluster <uuid> --bind <bare ip>:
 #       the node's own module-N row carries the port (:7421).
+#   L6  --batch --users-db: a missing database exits 33; an existing one gets the
+#       extension, its tables in its own config table, and participates;
+#       --purge --drop-extension drops the extension in every database.
 #
 # Every yxctl run is wrapped in `timeout`, so a hang is a FAIL (exit 124/137),
 # not a stuck nightly. Every check prints OK:/FAIL: and the script carries on; it
@@ -239,6 +242,60 @@ check "L3: both --peers names have an N-row with the default port" \
 check "L3: the cluster uuid is the one given with --cluster" \
 	test "$(pgq "$L3_DB" "select value from $YX_TARGET where module = 'C' and name = 'cluster' order by id limit 1")" = "$L3_CLUSTER"
 check "L3: ytserver active after the install (a bind address without a port would stop it starting)" wait_active
+
+# ── L6: --users-db ──────────────────────────────────────────────────────────
+#
+# [dbreg] A users database beside the catalog (yt-pgxt combined-config.md, yxctl
+# README "Users databases"). A missing one exits 33 without hanging - never
+# created here; an existing one gets the extension, its tables registered in its
+# OWN config table (none of the extension's), and ytserv replicates it
+# (yt_info('U')); `--purge default --drop-extension` takes the extension out of
+# every database ytserv replicates.
+echo "-- L6: --batch --users-db"
+purge "L6"
+L6_DB=yx_l6
+L6_APP=yx_l6_app
+L6_MISSING=yx_l6_missing
+check "L6: fresh database $L6_DB" fresh_db "$L6_DB"
+pgq postgres "drop database if exists $L6_MISSING with (force)" >/dev/null
+xc rm -rf /var/yaxaha
+yx 600 -v --batch -t "$YX_TARGET" --db "$(db_url "$L6_DB")" --users-db "$L6_MISSING"; rc=$?
+check "L6: --users-db naming a missing database exits 33 without hanging (exit $rc)" [ "$rc" -eq 33 ]
+check "L6: ...and its message names it" grep -q "$L6_MISSING" "$OUT"
+check "L6: ...and creates no database" db_absent "$L6_MISSING"
+purge "L6b"
+check "L6: fresh database $L6_DB" fresh_db "$L6_DB"
+check "L6: fresh users database $L6_APP" fresh_db "$L6_APP"
+pgq "$L6_APP" "create table public.yx_l6_t (id int primary key, v text)" >/dev/null
+xc rm -rf /var/yaxaha
+yx 600 -v --batch -t "$YX_TARGET" --db "$(db_url "$L6_DB")" --users-db "$L6_APP" --tables 'public.%'; rc=$?
+check "L6: install with --users-db $L6_APP exits 0 (exit $rc)" [ "$rc" -eq 0 ]
+check "L6: the extension in $L6_APP" \
+	test "$(pgq "$L6_APP" "select count(*) from pg_extension where extname = 'yaxaha'")" = "1"
+check "L6: yx_l6_t registered in $L6_APP's own config table" \
+	test "$(pgq "$L6_APP" "select count(*) from public.yt_config where module = 'A' and name = 'public.yx_l6_t'")" = "1"
+check "L6: ...with its sync trigger" \
+	test "$(pgq "$L6_APP" "select count(*) from pg_trigger where tgrelid = 'public.yx_l6_t'::regclass and tgname like 'zytsync\_%'")" = "1"
+check "L6: none of the extension's own tables registered there" \
+	test "$(pgq "$L6_APP" "select count(*) from public.yt_config where module = 'A' and name in ('public.yt_config', 'public.yt_alert', 'public.yt_job', 'public.yt_stat')")" = "0"
+check "L6: its config table keyed by (module, name)" \
+	test "$(pgq "$L6_APP" "select count(*) from pg_index i join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey) where i.indrelid = 'public.yt_config'::regclass and i.indisprimary and a.attname in ('module', 'name')")" = "2"
+# ytserv takes the database in by itself, not at once: the announce (yt_info('U+'),
+# made by the extension's script and by yxctl) has a pass probe it every second for
+# 30 s - yxctl says "does not replicate ... yet" when it is not in by its end
+for _ in $(seq 1 20); do
+	u="$(pgq "$L6_DB" "select x.value from json_to_recordset(yt_info('U')) as x(name text, value text) where x.name = '$L6_APP'")"
+	[ "${u%% *}" = "participant" ] && break
+	sleep 2
+done
+check "L6: ytserv replicates $L6_APP within the announce's 30 s (yt_info('U'): $u)" test "${u%% *}" = "participant"
+yx 120 --purge default --drop-extension -d "$L6_DB"; rc=$?
+check "L6: --purge default --drop-extension exits 0 (exit $rc)" [ "$rc" -eq 0 ]
+check "L6: ...the extension is gone from $L6_APP" \
+	test "$(pgq "$L6_APP" "select count(*) from pg_extension where extname = 'yaxaha'")" = "0"
+check "L6: ...and from $L6_DB" \
+	test "$(pgq "$L6_DB" "select count(*) from pg_extension where extname = 'yaxaha'")" = "0"
+check "L6: ...and the purge stopped ytserver" svc_inactive
 
 if [ "$failed" -gt 0 ]; then
 	echo "Negative + repeat installs: $failed check(s) FAILED" >&2

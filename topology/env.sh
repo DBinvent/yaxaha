@@ -231,8 +231,13 @@ cfg_tx() {
 	        $sql
 	        alter table $YX_CFG enable trigger user;
 	        commit;")"
+	# not only an SQL ERROR: a node whose PostgreSQL does not answer gives FATAL or
+	# `psql: error`, and docker its own - the write did not happen either way, and
+	# it was silent (topology 29b, nightly 20261016: a flag row left on a node whose
+	# PostgreSQL was down, read back at its next start)
 	case "$out" in
-		*ERROR*) echo "  WARN: $what on $n failed: $(printf '%s\n' "$out" | grep -m1 ERROR)" >&2 ;;
+		*ERROR*|*FATAL*|*"psql: error"*|*"Error response from daemon"*|*"is not running"*)
+			echo "  WARN: $what on $n failed: $(printf '%s\n' "$out" | grep -m1 -E 'ERROR|FATAL|psql: error|Error response|is not running')" >&2 ;;
 	esac
 }
 
@@ -370,6 +375,20 @@ heal() {
 node_down() { rh "docker network disconnect $YX_NET $1 >/dev/null 2>&1; true"; echo "  $1 off the network"; }
 node_up()   { rh "docker network connect    $YX_NET $1 >/dev/null 2>&1; true"; echo "  $1 back on the network"; }
 
+# [skv] The cluster WAL wiped, each node's key kept - fs_dir/<uuid>/node.key and
+# node.pub, as 35_skv_mtls.sh's cold start keeps them. A fixture that runs on the
+# secret store throughout sets YX_KEEP_NODE_KEYS (hier, skv-secrets.md H2): its
+# node's key IS the node to the store - its approval, its share of the master key,
+# its certificate - and a wiped one comes back a new node no leader admits, with no
+# certificate, so a cluster requiring TLS never elects again (hier 30_quorum after
+# 15_store, the nightly of 2026-10-17).
+wipe_keep_key() { # wipe_keep_key <node>
+	rh "docker exec $1 sh -c 'k=\$(find /var/yaxaha -name node.key | head -1); if [ -n \"\$k\" ]; then d=\$(dirname \"\$k\");
+		find /var/yaxaha -mindepth 1 -maxdepth 1 ! -path \"\$d\" -exec rm -rf {} +;
+		find \"\$d\" -mindepth 1 ! -name node.key ! -name node.pub -exec rm -rf {} +; else rm -rf /var/yaxaha/*; fi'" \
+		>/dev/null 2>&1 || true
+}
+
 restart_all() {
 	# Clear the cluster WAL with the restart. A restarted node re-issues from
 	# sub-term 1 while the old WAL still holds one, and every write then aborts
@@ -394,7 +413,8 @@ restart_all() {
 	for n in "${NODES[@]}"; do rh "docker exec $n pkill -f yaxaha/ytserv >/dev/null 2>&1; true"; done
 	sleep 2
 	for n in "${NODES[@]}"; do
-		rh "docker exec $n sh -c 'rm -rf /var/yaxaha/*' >/dev/null 2>&1; true"
+		if [ -n "${YX_KEEP_NODE_KEYS:-}" ]; then wipe_keep_key "$n"
+		else rh "docker exec $n sh -c 'rm -rf /var/yaxaha/*' >/dev/null 2>&1; true"; fi
 		cfg_delete "$n" least C
 	done
 	clear_prepared
@@ -531,6 +551,19 @@ summary() {
 # first statement, ahead of anything that would have cleared it. Six quick
 # queries here are cheaper than diagnosing another silent twenty-minute hang.
 #
+# [nightly] A failed script's node logs, kept in YX_FAIL_LOGS (the nightly's run
+# folder, nightly.sh): the containers go with the run, and with them the only
+# record of what ytserv did - the 2026-10-17 nightly's 31_commit X1 and 29c P4 left
+# nothing to read. <since> is the docker host's clock (epoch seconds).
+save_node_logs() { # save_node_logs <since> <script>
+	[ -n "${YX_FAIL_LOGS:-}" ] || return 0
+	mkdir -p "$YX_FAIL_LOGS" 2>/dev/null || return 0
+	local n
+	for n in "${NODES[@]}"; do
+		rh "docker logs --since $1 $n 2>&1 | tail -c 20000000" > "$YX_FAIL_LOGS/${2%.sh}.$n.log" 2>/dev/null || true
+	done
+}
+
 # YX_NO_SWEEP is for a fixture that SOURCES this file for its helpers and then
 # overrides NODES - the hierarchical fixture in ../hier does exactly that, and
 # sweeping n1..n6 on a network where they do not exist is nine pointless ssh round

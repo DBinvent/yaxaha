@@ -47,7 +47,7 @@ is a `docker exec`, so they run several times faster on the docker host itself.
 ```
 cp env.example .env     # the package; the docker daemon
 ./build.sh              # the node image rmc-node from the package
-./up.sh                 # three new clusters, eleven nodes, the writers (~3 min)
+./up.sh                 # three new clusters, eleven nodes, on the secret store and TLS, the writers (~5 min)
 ./test.sh               # the phases P1 ... P7 (about an hour)
 ./down.sh               # remove the containers and the network
 ```
@@ -65,6 +65,7 @@ publish until it is built). Since the relay (ytserv 0.20.22) no check reports on
 |---|---|
 | `lib.sh` | settings, the layout, docker and psql helpers, the config rows |
 | `steps.sh` | the checks (I1 to I9) and the steps: add, retire, move leadership, restart, lose a leader |
+| `store.sh` | the clusters on the secret store and TLS, a hierarchy's must (yt-pgxt skv-secrets.md H2): the store and genesis in each, every node approved, TLS required, the links set up with yxctl and each lower CA approved on the upper leader, the CA pinned for joiners; a node added at runtime approved (`store_join`). Every node has an app key of its own, `$RMC_SECRET-<node>` |
 | `verify.py` | judges one cluster's ledger against its writer's log (I1 to I4) |
 | `load/writer.sh` | one cluster's writer |
 | `node/` | the node image: Dockerfile and entrypoint |

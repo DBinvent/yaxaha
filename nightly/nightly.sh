@@ -277,6 +277,9 @@ build() {
 	cd "$YT_PGXT"
 	FORCE=1 bash ytpgc/build-all-ytpgc.sh
 	cargo build --release -p ytserv -p yxctl
+	# the third-party crates by license tag, shipped beside LICENSE (the list in the
+	# tree stays when this fails)
+	python3 -I yxctl/lib-licenses.py || echo "  WARN  lib-licenses.txt not refreshed"
 	(cd yxctl && cargo deb --variant pg18 --no-build)
 	cp "target/debian/yaxaha_${DEB_V}_amd64.deb" "$DEB"
 	if [ -d "$GIT_ROOT/etcd" ]; then (cd "$GIT_ROOT/etcd" && cargo build --release --example yxetcd); fi
@@ -293,6 +296,8 @@ on_docker_host() {
 s_topology() {
 	cd "$TESTS/topology"
 	export YAXAHA_DEB="$SUITE_DEB" YX_NODES="n1 n2 n3 n4 n5 n6 n7"
+	# a failed script's ytserv logs, one file per node (topology/env.sh save_node_logs)
+	export YX_FAIL_LOGS="$LOGS/topology-nodes"
 	local rc=0
 	./run_all.sh || rc=1
 	./90_down.sh || true

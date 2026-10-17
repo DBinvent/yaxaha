@@ -47,7 +47,8 @@ between async replication and synchronous quorum. `ClusterCommit::Ignore`
 of sync entirely — and is **not** a bench condition here.
 
 The base64 in `cluster_commit.b64` is a `ConfigValue{ table{ cluster_commit } }`
-protobuf; `yt_ct_encode()` is a stub, so these are precomputed.
+protobuf, precomputed so the harness needs no running node (on one,
+`yt_ct_decode(value)` prints it as JSON and `yt_ct_encode(json)` writes it back).
 
 ## What `nodes1` needs from the engine (`nosync` needs none of this)
 

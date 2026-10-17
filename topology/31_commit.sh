@@ -16,6 +16,11 @@
 #        statement (a CHECK). The client gets an error, no node has the row, and
 #        nothing is left prepared or idle in transaction (0.20.54 / 0.20.55 fixes,
 #        yt-pgxt topo-jobs.md "Found while building phase 5")
+#   X1   [xa] a client's own two-phase commit (yt-pgxt ytpgc/README.md, 2026-10-16):
+#        PREPARE TRANSACTION of a cluster-synced insert, COMMIT PREPARED from
+#        another session - on every node; X2 ROLLBACK PREPARED - nowhere; X3 a
+#        prepared transaction with no cluster side commits as before (written
+#        2026-10-16, first run the next nightly)
 #   C9   one transaction of 500 rows
 #
 # ## C9 and C13 - known gaps until ytserv 0.20.61
@@ -390,6 +395,34 @@ leaks_check "before C9, after every case above"
 # is about a transaction of 500 rows, not about that gap (seen 2026-10-10, ytserv
 # 0.20.69: C9 refused once right after the vetoes, green in the runs before).
 wait_writable "$O" "$W" cm_t -9000 || true
+
+# ── X1-X3: a client's own two-phase commit ──────────────────────────────────
+xa_cleanup() { q "$O" "rollback prepared 'yt_test_xa1'; " >/dev/null 2>&1; q "$O" "rollback prepared 'yt_test_xa2';" >/dev/null 2>&1;
+	q "$O" "rollback prepared 'yt_test_xa3';" >/dev/null 2>&1; true; }
+xa_cleanup
+out="$(q "$O" "begin; insert into cm_t values (91001, 'xa'); prepare transaction 'yt_test_xa1';" 2>&1)"
+case "$out" in *ERROR*) bad "X1 PREPARE TRANSACTION of a cluster-synced insert refused: $out" ;;
+	*) ok "X1 PREPARE TRANSACTION of a cluster-synced insert: the cluster side prepared with it" ;; esac
+out="$(q "$O" "commit prepared 'yt_test_xa1';" 2>&1)"
+case "$out" in *ERROR*) bad "X1 COMMIT PREPARED (another session) refused: $out" ;;
+	*) ok "X1 COMMIT PREPARED from another session" ;; esac
+wait_all 30 cm_t "id = 91001" 1 && ok "X1 the prepared insert is on every node" \
+	|| bad "X1 the prepared insert is missing: $(lacking cm_t "id = 91001" 1)"
+q "$O" "begin; insert into cm_t values (91002, 'xa'); prepare transaction 'yt_test_xa2';" >/dev/null 2>&1
+out="$(q "$O" "rollback prepared 'yt_test_xa2';" 2>&1)"
+case "$out" in *ERROR*) bad "X2 ROLLBACK PREPARED refused: $out" ;; *) ok "X2 ROLLBACK PREPARED" ;; esac
+sleep 5
+check "X2 the rolled-back insert is on no node" "" "$(lacking cm_t "id = 91002" 0)"
+# a transaction that synced nothing: no cluster side, its gid unknown to ytserv
+q "$O" "drop table if exists cm_local; create table cm_local (id int primary key);" >/dev/null 2>&1
+q "$O" "begin; insert into cm_local values (1); prepare transaction 'yt_test_xa3';" >/dev/null 2>&1
+out="$(q "$O" "commit prepared 'yt_test_xa3';" 2>&1)"
+case "$out" in *ERROR*) bad "X3 a prepared transaction with no cluster side did not commit: $out" ;;
+	*) check "X3 a prepared transaction with no cluster side commits as before" "1" "$(q "$O" "select count(*) from cm_local")" ;; esac
+check "X1-X3 nothing is left prepared under a test gid" "0" \
+	"$(q "$O" "select count(*) from pg_prepared_xacts where gid like 'yt_test_xa%'")"
+q "$O" "drop table if exists cm_local;" >/dev/null 2>&1
+xa_cleanup
 
 # ── C9: 500 rows in one transaction ──────────────────────────────
 #

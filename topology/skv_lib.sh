@@ -6,16 +6,22 @@
 # SECRET=$YX_SECRET), which the store requires, and the config table is synced, so
 # the store's rows - module X - replicate.
 
-# yxctl inside a node, as postgres, with the fixture's app key; its output and errors
+# yxctl inside a node, as postgres, with the fixture's app key; its output and errors.
+# The database by name, `-d`: yxctl's `--db` is a connection URL, and a bare name
+# there ran yxctl's own SQL (the --link-* checks) in `postgres` (hier 15_store S3,
+# the nightly of 2026-10-17: relation public.yt_config does not exist)
+# node $1's app key: the fixture's own rule when it has one (hier: one per node,
+# secret_of), else the YX_SECRET every node of this fixture shares
+app_secret() { if declare -F secret_of >/dev/null; then secret_of "$1"; else printf '%s' "$YX_SECRET"; fi; }
 yx() {
 	local n="$1"; shift
-	rh "docker exec -i -u postgres -e SECRET=$YX_SECRET $n yxctl --db $YX_DB --target $YX_CFG $* 2>&1" 2>&1 || true
+	rh "docker exec -i -u postgres -e SECRET=$(app_secret "$n") $n yxctl -d $YX_DB --target $YX_CFG $* 2>&1" 2>&1 || true
 }
 # without the app key: the container itself carries SECRET (10_up.sh gives it
 # to `docker run`), so every exec inherits it unless it is taken away
 yx_nokey() {
 	local n="$1"; shift
-	rh "docker exec -i -u postgres $n env -u SECRET yxctl --db $YX_DB --target $YX_CFG $* 2>&1" 2>&1 || true
+	rh "docker exec -i -u postgres $n env -u SECRET yxctl -d $YX_DB --target $YX_CFG $* 2>&1" 2>&1 || true
 }
 leader() {
 	local n
@@ -58,7 +64,7 @@ pending_j() {
 
 # yxctl --skv-approve <uuid> on the leader's host - the operator's approval
 approve() {
-	rh "docker exec -u postgres -e SECRET=$YX_SECRET $L yxctl --skv-approve $1 --yes -U postgres -d $YX_DB -t $YX_CFG 2>&1" 2>&1 || true
+	rh "docker exec -u postgres -e SECRET=$(app_secret "$L") $L yxctl --skv-approve $1 --yes -U postgres -d $YX_DB -t $YX_CFG 2>&1" 2>&1 || true
 }
 
 # Approve every node that enrolls, until all of "$@" (default: every node) hold

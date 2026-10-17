@@ -8,12 +8,15 @@
 # Order is by dependency, not by cost:
 #
 #   10_up        destructive; recreates all nine containers
+#   15_store     the store and TLS in every cluster, the links set up with yxctl:
+#                a hierarchy runs on them (H2), every script after needs a link
 #   20_relations the relation layer is configured, loaded and derived at all
 #   30_quorum    ...and an external link is excluded from quorum/election/party
 #   40_dial      ...and rules 1 and 2 are enforced on the dial
 #   50_tables    the two per-table configurations, across a real boundary
 #   60_neighbor  the sideways rule: sharded crosses, unsharded does not
 #   70_failover  a leader change below does not sever the link from above
+#   80_skv_link_tls  across the links: plaintext refused, a lower and the upper rotate
 #
 # 20 and 30 come before everything else deliberately: if the relation layer is not
 # loaded, or a foreign node is counted in quorum, then every later assertion is
@@ -68,8 +71,8 @@ if [ $# -gt 0 ]; then
 	for t in "$@"; do step "$t"; done
 else
 	step 10_up.sh
-	for t in 20_relations.sh 30_quorum.sh 40_dial.sh 50_tables.sh 60_neighbor.sh \
-	         70_failover.sh; do
+	for t in 15_store.sh 20_relations.sh 30_quorum.sh 40_dial.sh 50_tables.sh 60_neighbor.sh \
+	         70_failover.sh 80_skv_link_tls.sh; do
 		step "$t"
 	done
 fi

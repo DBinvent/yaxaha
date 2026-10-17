@@ -51,6 +51,25 @@ YX_DB="${YX_HIER_DB:-yxhier}"
 # branches in different worktrees, and rebuilding one image from the other's tree
 # silently swaps the binary under a suite that is not being worked on.
 YX_IMAGE="${YX_HIER_IMAGE:-yxhier-node}"
+# [skv] node <n>'s app key: its own (skv-secrets.md H7). A hierarchy runs on the
+# secret store (H2), and the store needs every node's app key: the fixture always
+# has them - YX_HIER_SECRET picks the prefix. ../topology/skv_lib.sh asks it for
+# every yxctl call it makes on a node.
+YX_HIER_SECRET="${YX_HIER_SECRET:-yaxaha-hier-fixture}"
+secret_of() { printf '%s' "${YX_HIER_SECRET:+$YX_HIER_SECRET-$1}"; }
+# [skv] and from 15_store.sh on every cluster stays on the store and TLS: a restart
+# (restart_all) wipes the cluster WAL but keeps each node's key - wiped, the node
+# came back a stranger, with no certificate, and the upper never elected again
+YX_KEEP_NODE_KEYS=1
+# [skv] point ../topology/skv_lib.sh's helpers at one cluster: its nodes, its leader
+in_cluster() {
+	read -r -a NODES <<< "${CLUSTER_NODES[$1]}"
+	L="$(leader_of "$1")"
+}
+x_like() { q "$1" "select count(*) from $YX_CFG where module='X' and name like '$2'"; }
+required_line() { info "$1" X peer_tls; }
+# the lines of a node's log since $2 that say its CA is what admits it (H4)
+ca_refusals() { rh "docker logs --since $2 $1 2>&1 | grep -ac 'admitted by its CA'" 2>/dev/null || echo 0; }
 
 # ── the three clusters ─────────────────────────────────────────────────────
 # Four nodes in each LOWER cluster, three in the upper.

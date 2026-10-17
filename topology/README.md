@@ -67,9 +67,10 @@ look like they are exercising a fix that was never deployed. Check with:
 | `88_quiescent.sh` | a table nobody writes to still heals, on the age trigger alone |
 | `95_partition.sh` | `yt_info('p:<table>/<n>')` slices a table into partitions that tile it exactly once — executed, not just inspected |
 | `96_jsonb_merge.sh` | concurrent disjoint patches of one jsonb row from several nodes all survive, the nodes agree |
-| `96b_merge_more.sh` | `merge_all_fields`: counters (a numeric column and a jsonb number) incremented from several nodes keep every committed increment, never 55409; `merge_text`: a line patch composes with a different line changed elsewhere, the same line is refused; arrays: an element update and an append compose, a middle insert against a diverged array is refused |
+| `96b_merge_more.sh` | `merge_all_fields`: counters (a numeric column and a jsonb number) incremented from several nodes keep every committed increment, never 55409; `merge_text`: a line patch composes with a different line changed elsewhere, the same line is refused, another word of it merges; arrays: an element update and an append compose, a middle insert against a diverged array is refused |
 | `31_commit.sh` | the commit path: explicit and automatic completion, rollback, a prepare vetoed on one member, a failed statement mid-transaction (nothing left open anywhere), PK update / delete / truncate, a 500-row transaction |
 | `86_schema_block.sh`, `87_node_block.sh`, `89_recover.sh` | blocking at table and node scope, a node gone and back |
+| `89b_recovery.sh` | recovery T2/T3: a node's copy repaired from the majority under a lock the leader sees (rows it lacks, the newest above its maximum, one only it has, an ignored column kept); a row no majority decides blocked cluster-wide and recorded, released once the copies agree |
 | `32_schema_change.sh` | a schema change rolled across the running cluster (followers first, the leader last, rumba.md) under writes: the same schema on every node before and after (columns, defaults, positions, constraints, indexes), writes across the mixed window, the schema gate reporting it and clearing, the new column replicating, then an index, a NOT NULL default column and the contract step; S9 the gate judging a widened column by SchemaGuard's rules, defaults and `sg_migration=with_size_cut` |
 | `23_split.sh` | a real network split (routes cut inside the containers): 4/3 - the minority never leads or commits, heals; 3/3 - neither side commits, one leader after |
 | `92_rppd.sh`, `93_etcd.sh`, `94_clickhouse.sh` | Python server functions on commit, the etcd API v3 surface, the ClickHouse sink |
@@ -86,6 +87,7 @@ look like they are exercising a fix that was never deployed. Check with:
 | `99_peer_stream.sh` | `peer_stream=1`: serial and back-to-back writes, a follower restarted under the stream |
 | `25_cross_db.sh` | its own three nodes: ytserv's instance config in the `postgres` database, a users database holding its tables, their `yt_config` (A rows) and the rppd configuration - replication, a table config change, rppd firing, nothing leaking across (the rppd database is resolved, prepared transactions finish in their own database - ytserv 0.20.57) |
 | `24_db_local.sh` | a node on TCP PostgreSQL is a forever-spare: a member, never a leader |
+| `26_stage.sh` | a `stage` job puts a table with data on one node under sync: every member catches up by key, the rule walks `nodes>=1` -> `half` -> `all`, done; a member with rows of its own stalls the job, which fails naming it (`stall_sec`) - written 2026-10-16, first run the next nightly |
 
 `run_a.sh` runs all of them on fixture A (seven nodes, n7 the spare), in that
 order and carrying on past a failure; `run_all.sh` builds the image first and

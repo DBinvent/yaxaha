@@ -41,10 +41,14 @@ step() {
 		10_up.sh|05_gitsrv.sh) ;;
 		*) [ "${YX_NO_PRECASE:-0}" = 1 ] || bash -c 'source ./env.sh; pre_case' ;;
 	esac
+	# [nightly] when it began on the docker host's clock, for its nodes' logs below
+	local t0; t0="$(YX_NO_SWEEP=1 bash -c 'source ./env.sh; rh "date +%s"' 2>/dev/null | tail -1)"
+	case "$t0" in ''|*[!0-9]*) t0="$(date +%s)" ;; esac
 	if ./"$1"; then
 		echo "── $1: PASS"
 	else
 		echo "── $1: FAIL (recorded; continuing per PLAN.md §4a)"
+		[ -z "${YX_FAIL_LOGS:-}" ] || YX_NO_SWEEP=1 bash -c 'source ./env.sh; save_node_logs "$0" "$1"' "$t0" "$1" || true
 		rc=1
 	fi
 }
@@ -87,9 +91,10 @@ else
 	# 32_schema_change.sh is held out (2026-10-12, the owner's call) until the TCP
 	# spare stops missing rows committed during a roll (its S7/S8 on n7); run it by
 	# hand meanwhile, on a running fixture: ../nightly/locked.sh ./run_a.sh 32_schema_change.sh
-	for t in 86_schema_block.sh 87_node_block.sh 89_recover.sh 23_split.sh \
+	for t in 86_schema_block.sh 87_node_block.sh 89_recover.sh 89b_recovery.sh 23_split.sh \
 	         92_rppd.sh 93_etcd.sh 92c_rppd_cadence.sh 92b_rppd_breaker.sh 92d_rppd_shaper.sh 91_otel.sh 94_clickhouse.sh \
-	         97_mpp.sh 98_mpp_df.sh 98_skv_join.sh 29_concurrent.sh 29b_flags_ab.sh 99_peer_stream.sh 25_cross_db.sh; do
+	         97_mpp.sh 98_mpp_df.sh 98_skv_join.sh 29_concurrent.sh 29b_flags_ab.sh 29c_parallel_apply.sh \
+	         29d_shard_lease.sh 99_peer_stream.sh 25_cross_db.sh 26_stage.sh; do
 		step "$t"
 	done
 

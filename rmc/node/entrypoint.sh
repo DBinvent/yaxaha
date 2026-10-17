@@ -74,7 +74,17 @@ while :; do
     sleep 1
 done
 echo "[node] starting ytserv"
+# [skv] ytserv's app key, when the container was given one (lib.sh node_run): the
+# secret store and the link TLS a hierarchy runs on need it (skv-secrets.md H2, H7).
+# Handed over in a 0600 file rather than on a command line.
+YT_ENV=/dev/null
+if [ -n "${SECRET:-}" ]; then
+    install -d -m 0700 -o postgres /run/yt
+    ( umask 077; printf 'SECRET=%s\n' "$SECRET" > /run/yt/ytserv.env )
+    chown postgres /run/yt/ytserv.env
+    YT_ENV=/run/yt/ytserv.env
+fi
 # not exec: when ytserv exits the container stays up, so its output can still be read
-su postgres -c "/usr/local/bin/yaxaha/ytserv 'postgresql://postgres@localhost/${DB}?host=/var/run/postgresql' ${CFG_TABLE}" \
+su postgres -s /bin/bash -c "set -a; . ${YT_ENV}; set +a; exec /usr/local/bin/yaxaha/ytserv 'postgresql://postgres@localhost/${DB}?host=/var/run/postgresql' ${CFG_TABLE}" \
     || echo "[node] ytserv exited $? - container held open for inspection"
 sleep infinity

@@ -29,6 +29,11 @@
 #    and no member was refused for speaking plaintext
 # M8 rotation under load: v2 published, certificates of both versions while it
 #    runs, writes and reads never fail, v1 retired - every node on v2 alone
+# M10 [H12] a member that lost its node key comes back while TLS is required: with
+#    the cluster CA pinned (C skv_ca_root, as yxctl --batch --ca-root writes it) it
+#    enrolls, is approved, takes the leader's certificate bundle through the pin,
+#    speaks TLS and holds the current master key again (written 2026-10-16, not
+#    run yet: no full test runs in a dev session)
 # M9 peer_tls off: the requirement and the certificates go, plaintext again, and
 #    the cluster still writes
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
@@ -198,6 +203,33 @@ fails="$(grep -c FAIL "$LOAD" || true)"; total="$(wc -l < "$LOAD")"
 [ "$fails" = 0 ] && [ "$total" -gt 0 ] && ok "M8 $total writes and reads during the rotation, none failed" \
 	|| bad "M8 $fails of $total failed during the rotation: $(grep -m3 FAIL "$LOAD")"
 rm -f "$LOAD"
+
+# ── M10 a joiner of a cluster that requires TLS, through its pinned CA ─────────
+L="$(leader)"
+ROOT="$(info "$L" X @ca/2)"
+case "$ROOT" in SHA256:*) ok "M10 the CA of v2 is the one to pin: $ROOT" ;; *) bad "M10 no @ca/2 on $L: [$ROOT]" ;; esac
+cfg_push skv_ca_root C "$ROOT"
+J=""; for n in "${NODES[@]}"; do is_spare_node "$n" && continue; [ "$n" = "$L" ] && continue; J="$n"; done
+JU="$(node_uuid "$J")"
+SINCE10="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+rh "docker exec $J pkill -f yaxaha/ytserv >/dev/null 2>&1; true"
+rh "docker exec $J sh -c 'find /var/yaxaha \( -name node.key -o -name node.pub -o -name skv.approved \) -exec rm -f {} +'" \
+	>/dev/null 2>&1 || true
+rh "docker restart $J >/dev/null"
+# it asks with a new key: approved once its pending row is there
+got=""
+for _ in $(seq 1 45); do
+	case "$(approve "$JU")" in *Approved*) got=1; break ;; esac
+	sleep 4
+done
+[ -n "$got" ] && ok "M10 $J came back with a new key and was approved" || bad "M10 no approval of $J's new key went through"
+for _ in $(seq 1 60); do case "$(tls_of "$J")" in *"certificates v2"*) break ;; esac; sleep 2; done
+case "$(tls_of "$J")" in *"certificates v2"*) ok "M10 $J speaks TLS with its certificate of v2 - from the bundle, through the pin" ;;
+	*) bad "M10 $J has no certificate of v2: $(tls_of "$J")" ;; esac
+skv_wait 90 "$J holds v2" all_hold 2 "$J" && ok "M10 $J holds v2 again, wrapped for its new key" \
+	|| bad "M10 $J does not hold v2: $(mk_of "$J")"
+nt="$(rh "docker logs --since $SINCE10 $J 2>&1 | grep -c 'certificates not taken'" 2>/dev/null || echo 0)"
+check "M10 $J took the leader's certificates at the first bundle it was handed" "0" "${nt:-0}"
 
 # ── M9 off ───────────────────────────────────────────────────────────────────
 cfg_push peer_tls C false

@@ -62,9 +62,13 @@ declare -A START=([upper]="u1 u2 u3" [east]="a1 a2 a3 a4" [west]="b1 b2 b3 b4")
 # found in another cluster has crossed a boundary
 ID_SPAN=1000000000000
 declare -A ID_BASE=([upper]=1000000000000 [east]=2000000000000 [west]=3000000000000)
-# placeholder sign-in keys: the upper cluster holds one per child cluster. Nothing
-# verifies a signature yet; what is tested is that a key, and no address, is held.
+# placeholder sign-in keys: the upper cluster holds one per child cluster. Read by
+# nothing since H2 - a lower is admitted by its CA (store.sh); kept as the catalogue row.
 declare -A SIGNIN=([eastc]=eastc-signin-key-placeholder [westc]=westc-signin-key-placeholder)
+# [skv] each node's app key, its own (skv-secrets.md H7): "$RMC_SECRET-<node>". The
+# store and TLS a hierarchy runs on need it (H2, store.sh).
+RMC_SECRET=${RMC_SECRET:-yaxaha-rmc-fixture}
+secret_of() { printf '%s' "$RMC_SECRET-$1"; }
 
 say() { printf '%s\n' "$*"; }
 die() { say "== STOP: $*" >&2; exit 1; }
@@ -113,7 +117,7 @@ node_run() { # node_run <name> [clone-from]
     k=$(node_ip "$n"); k=${k##*.}
     docker rm -f "$(cname "$n")" >/dev/null 2>&1
     docker run -d --name "$(cname "$n")" --hostname "$n" --network "$NET" --ip "$(node_ip "$n")" \
-        --network-alias "$n" -e NODE_UUID="$(node_uuid "$n")" -e DB="$DB" \
+        --network-alias "$n" -e NODE_UUID="$(node_uuid "$n")" -e DB="$DB" -e SECRET="$(secret_of "$n")" \
         -e CLONE_FROM="$from" -e SEQ_K="$k" ${YX_COV_MOUNT:-} "$IMAGE" >/dev/null
 }
 load_run() {

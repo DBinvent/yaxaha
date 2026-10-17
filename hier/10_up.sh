@@ -18,8 +18,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 
 rh "docker network inspect $YX_NET >/dev/null 2>&1 || docker network create $YX_NET >/dev/null"
 
-# YX_HIER_SECRET: [skv] the app key every node runs with, for the secret store and
-# link TLS (80_skv_link_tls.sh) - the linked clusters share it. Unset: none, as before.
+# YX_HIER_SECRET: [skv] the app keys, for the secret store and link TLS a hierarchy
+# runs on (H2, 15_store.sh): node <n> runs with "$YX_HIER_SECRET-<n>" - an instance's
+# own key, shared with no other node or cluster (yt-pgxt skv-secrets.md H7; secret_of
+# in env.sh, which gives the prefix a default).
 # YX_HIER_RUST_LOG: diagnostic, RUST_LOG for every node's ytserv (tonic/hyper/h2
 # tracing on stderr, e.g. h2=debug). Unset: none.
 # YX_COV_MOUNT: a coverage run's volume for the instrumented ytserv's counts
@@ -30,7 +32,7 @@ start_node() { # start_node <node>: a fresh container for it
 	rh "docker rm -f $n >/dev/null 2>&1; true"
 	rh "docker run -d --name $n --hostname $n --network $YX_NET \
 		-e NODE_UUID=$u -e DB=$YX_DB -e CFG_TABLE=$YX_CFG ${YX_COV_MOUNT:-} \
-		${YX_HIER_SECRET:+-e SECRET=$YX_HIER_SECRET} ${YX_HIER_RUST_LOG:+-e RUST_LOG=$YX_HIER_RUST_LOG} \
+		${YX_HIER_SECRET:+-e SECRET=$(secret_of "$n")} ${YX_HIER_RUST_LOG:+-e RUST_LOG=$YX_HIER_RUST_LOG} \
 		$YX_IMAGE >/dev/null"
 }
 echo "Starting ${#NODES[@]} nodes in ${#CLUSTERS[@]} clusters..."
